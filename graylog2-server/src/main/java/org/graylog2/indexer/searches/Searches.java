@@ -298,7 +298,7 @@ public class Searches {
         }
 
         if (range != null) {
-            srb.setFilter(IndexHelper.getTimestampRangeFilter(range));
+            srb.setPostFilter(IndexHelper.getTimestampRangeFilter(range));
         }
 
         if (sort != null) {
@@ -325,7 +325,7 @@ public class Searches {
         SearchRequestBuilder srb = standardSearchRequest(query, indices, limit, offset, range, sort);
 
         if (range != null && filter != null) {
-            srb.setFilter(standardFilters(range, filter));
+            srb.setPostFilter(standardFilters(range, filter));
         }
 
         return srb;

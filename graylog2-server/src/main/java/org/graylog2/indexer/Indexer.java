@@ -29,7 +29,7 @@ import com.ning.http.client.AsyncHttpClient;
 import com.ning.http.client.ListenableFuture;
 import com.ning.http.client.Response;
 import org.apache.commons.io.FileUtils;
-import org.elasticsearch.ElasticSearchTimeoutException;
+import org.elasticsearch.ElasticsearchTimeoutException;
 import org.elasticsearch.Version;
 import org.elasticsearch.action.WriteConsistencyLevel;
 import org.elasticsearch.action.admin.cluster.health.ClusterHealthRequest;
@@ -138,7 +138,7 @@ public class Indexer {
 
         try {
             client.admin().cluster().health(new ClusterHealthRequest().waitForYellowStatus()).actionGet(5, SECONDS);
-        } catch(ElasticSearchTimeoutException e) {
+        } catch(ElasticsearchTimeoutException e) {
             final String hosts = node.settings().get("discovery.zen.ping.unicast.hosts");
             final Iterable<String> hostList = Splitter.on(',').split(hosts);
 

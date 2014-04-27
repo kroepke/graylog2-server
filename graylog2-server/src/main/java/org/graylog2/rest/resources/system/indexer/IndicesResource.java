@@ -28,7 +28,7 @@ import org.elasticsearch.action.admin.cluster.node.info.NodesInfoRequest;
 import org.elasticsearch.action.admin.cluster.state.ClusterStateRequest;
 import org.elasticsearch.action.admin.indices.close.CloseIndexRequest;
 import org.elasticsearch.action.admin.indices.open.OpenIndexRequest;
-import org.elasticsearch.action.admin.indices.settings.UpdateSettingsRequest;
+import org.elasticsearch.action.admin.indices.settings.put.UpdateSettingsRequest;
 import org.elasticsearch.action.admin.indices.stats.*;
 import org.elasticsearch.cluster.ClusterState;
 import org.elasticsearch.cluster.metadata.IndexMetaData;
@@ -125,10 +125,10 @@ public class IndicesResource extends RestResource {
         try {
             // Get a list of all indices and select those that are closed. This is only possible via metadata.
             ClusterStateRequest csr = new ClusterStateRequest()
-                    .filterNodes(true)
-                    .filterRoutingTable(true)
-                    .filterBlocks(true)
-                    .filterMetaData(false);
+                    .nodes(true)
+                    .routingTable(true)
+                    .blocks(true)
+                    .metaData(true);
             ClusterState state = indexer.getClient().admin().cluster().state(csr).actionGet().getState();
 
             UnmodifiableIterator<IndexMetaData> it = state.getMetaData().getIndices().valuesIt();
