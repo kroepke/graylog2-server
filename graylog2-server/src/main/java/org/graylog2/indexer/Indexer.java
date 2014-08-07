@@ -47,7 +47,6 @@ import org.elasticsearch.common.xcontent.XContentType;
 import org.elasticsearch.node.Node;
 import org.elasticsearch.node.NodeBuilder;
 import org.graylog2.Configuration;
-import org.graylog2.StartupException;
 import org.graylog2.UI;
 import org.graylog2.indexer.cluster.Cluster;
 import org.graylog2.indexer.counts.Counts;
@@ -315,7 +314,7 @@ public class Indexer {
 
         final BulkRequestBuilder request = client.prepareBulk();
         for (Message msg : messages) {
-            request.add(buildIndexRequest(Deflector.buildName(configuration.getElasticSearchIndexPrefix()),
+            request.add(buildIndexRequest(configuration.getElasticSearchIndexPrefix() + "_" + Deflector.DEFLECTOR_SUFFIX,
                                           msg.toElasticSearchObject(),
                                           msg.getId())); // Main index.
         }

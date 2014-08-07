@@ -134,7 +134,7 @@ public class Deflector { // extends Ablenkblech
         if (!indexer.indices().create(newTarget)) {
             LOG.error("Could not properly create new target <{}>", newTarget);
         }
-        updateIndexRanges(newTarget);
+        updateIndexRanges();
 
         LOG.info("Done!");
         
@@ -232,11 +232,10 @@ public class Deflector { // extends Ablenkblech
         return buildIndexName(indexPrefix, getNewestTargetNumber());
     }
 
-    public static String buildIndexName(String prefix, int number) {
+    public String buildIndexName(String prefix, int number) {
         return prefix + "_" + number;
     }
-    public static String buildName(String prefix) { return prefix + "_" + DEFLECTOR_SUFFIX; }
-    
+
     public static int extractIndexNumber(String indexName) throws NumberFormatException {
         String[] parts = indexName.split("_");
         
@@ -260,7 +259,7 @@ public class Deflector { // extends Ablenkblech
         indexer.cycleAlias(getName(), newIndex);
     }
 
-    private void updateIndexRanges(String index) {
+    private void updateIndexRanges() {
         // Re-calculate index ranges.
         try {
             systemJobManager.submit(rebuildIndexRangesJobFactory.create(this));
@@ -276,6 +275,6 @@ public class Deflector { // extends Ablenkblech
     }
 
     public String getName() {
-        return buildName(indexPrefix);
+        return indexPrefix + "_" + DEFLECTOR_SUFFIX;
     }
 }
