@@ -71,7 +71,8 @@ public class DeflectorTest {
                 mock(Configuration.class),
                 mock(ActivityWriter.class),
                 mock(RebuildIndexRangesJob.Factory.class),
-                mock(OptimizeIndexJob.Factory.class));
+                mock(OptimizeIndexJob.Factory.class),
+                mock(Indexer.class));
 
         assertEquals("graylog2_0", d.buildIndexName("graylog2", 0));
         assertEquals("graylog2_1", d.buildIndexName("graylog2", 1));
@@ -89,11 +90,12 @@ public class DeflectorTest {
                                     mock(Configuration.class),
                                     mock(ActivityWriter.class),
                                     mock(RebuildIndexRangesJob.Factory.class),
-                                    mock(OptimizeIndexJob.Factory.class));
+                                    mock(OptimizeIndexJob.Factory.class),
+                                    mock(Indexer.class));
         final Indexer indexer = mock(Indexer.class);
         when(indexer.indices()).thenReturn(null);
         try {
-            final Map<String, IndexStats> deflectorIndices = d.getAllDeflectorIndices(indexer);
+            final Map<String, IndexStats> deflectorIndices = d.getAllDeflectorIndices();
             assertNotNull(deflectorIndices);
             Assert.assertEquals(deflectorIndices.size(), 0);
         } catch (Exception e) {
@@ -107,11 +109,12 @@ public class DeflectorTest {
                                     mock(Configuration.class),
                                     mock(ActivityWriter.class),
                                     mock(RebuildIndexRangesJob.Factory.class),
-                                    mock(OptimizeIndexJob.Factory.class));
+                                    mock(OptimizeIndexJob.Factory.class),
+                                    mock(Indexer.class));
         final Indexer indexer = mock(Indexer.class);
         when(indexer.indices()).thenReturn(null);
         try {
-            final String[] deflectorIndices = d.getAllDeflectorIndexNames(indexer);
+            final String[] deflectorIndices = d.getAllDeflectorIndexNames();
             assertNotNull(deflectorIndices);
             Assert.assertEquals(deflectorIndices.length, 0);
         } catch (Exception e) {

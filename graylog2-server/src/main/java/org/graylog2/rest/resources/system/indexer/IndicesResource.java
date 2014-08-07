@@ -196,7 +196,7 @@ public class IndicesResource extends RestResource {
     public Response close(@ApiParam(title = "index") @PathParam("index") String index) {
         checkPermission(RestPermissions.INDICES_CHANGESTATE, index);
 
-        if (deflector.getCurrentActualTargetIndex(indexer).equals(index)) {
+        if (deflector.getCurrentActualTargetIndex().equals(index)) {
             return Response.status(403).build();
         }
 
@@ -225,7 +225,7 @@ public class IndicesResource extends RestResource {
     public Response delete(@ApiParam(title = "index") @PathParam("index") String index) {
         checkPermission(RestPermissions.INDICES_DELETE, index);
 
-        if (deflector.getCurrentActualTargetIndex(indexer).equals(index)) {
+        if (deflector.getCurrentActualTargetIndex().equals(index)) {
             return Response.status(403).build();
         }
 

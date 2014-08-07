@@ -46,7 +46,7 @@ public class Counts {
     }
 
     public long total() {
-        return c.count(new CountRequest(deflector.getAllDeflectorIndexNames(indexer))).actionGet().getCount();
+        return c.count(new CountRequest(deflector.getAllDeflectorIndexNames())).actionGet().getCount();
     }
 	
 }

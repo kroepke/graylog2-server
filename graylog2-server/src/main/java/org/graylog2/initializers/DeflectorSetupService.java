@@ -52,7 +52,7 @@ public class DeflectorSetupService extends AbstractIdleService {
         if (indexerSetupService.isRunning()) {
             // Set up deflector.
             LOG.info("Setting up deflector.");
-            deflector.setUp(indexer);
+            deflector.setUp();
         }
     }
 
