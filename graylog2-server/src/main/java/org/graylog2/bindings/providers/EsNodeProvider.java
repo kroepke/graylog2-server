@@ -67,6 +67,8 @@ public class EsNodeProvider implements Provider<Node> {
         settings.put("node.master", Boolean.toString(conf.isEsIsMasterEligible()));
         settings.put("node.data", Boolean.toString(conf.isEsStoreData()));
 
+        settings.put("action.auto_create_index", Boolean.toString(false));
+
         settings.put("http.enabled", Boolean.toString(conf.isEsIsHttpEnabled()));
         settings.put("transport.tcp.port", String.valueOf(conf.getEsTransportTcpPort()));
 

@@ -161,7 +161,7 @@ public class Deflector { // extends Ablenkblech
                 systemJobManager.submit(optimizeIndexJobFactory.create(oldTarget));
             } catch (SystemJobConcurrencyException e) {
                 // The concurrency limit is very high. This should never happen.
-                LOG.error("Cannot optimize index <{}>.", oldTarget, e);
+                LOG.error("Cannot optimize index <" + oldTarget + ">.", e);
             }
         }
 
@@ -242,7 +242,7 @@ public class Deflector { // extends Ablenkblech
         try {
             return Integer.parseInt(parts[parts.length-1]);
         } catch(Exception e) {
-            LOG.debug("Could not extract index number from index <{}>.", indexName);
+            LOG.debug("Could not extract index number from index <" + indexName + ">.", e);
             throw new NumberFormatException();
         }
     }
@@ -266,7 +266,7 @@ public class Deflector { // extends Ablenkblech
         } catch (SystemJobConcurrencyException e) {
             String msg = "Could not re-calculate index ranges after cycling deflector: Maximum concurrency of job is reached.";
             activityWriter.write(new Activity(msg, Deflector.class));
-            LOG.error(msg);
+            LOG.error(msg, e);
         }
     }
 
