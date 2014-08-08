@@ -26,7 +26,6 @@ import org.graylog2.alarmcallbacks.AlarmCallbackFactory;
 import org.graylog2.alarmcallbacks.EmailAlarmCallback;
 import org.graylog2.alerts.Alert;
 import org.graylog2.alerts.AlertService;
-import org.graylog2.indexer.Indexer;
 import org.graylog2.initializers.IndexerSetupService;
 import org.graylog2.plugin.alarms.AlertCondition;
 import org.graylog2.plugin.alarms.callbacks.AlarmCallback;
@@ -52,7 +51,6 @@ public class AlertScannerThread extends Periodical {
     private final AlarmCallbackFactory alarmCallbackFactory;
     private final EmailAlarmCallback emailAlarmCallback;
     private final IndexerSetupService indexerSetupService;
-    private final Indexer indexer;
     private final ServerStatus serverStatus;
 
     @Inject
@@ -62,7 +60,6 @@ public class AlertScannerThread extends Periodical {
                               AlarmCallbackFactory alarmCallbackFactory,
                               EmailAlarmCallback emailAlarmCallback,
                               IndexerSetupService indexerSetupService,
-                              Indexer indexer,
                               ServerStatus serverStatus) {
         this.alertService = alertService;
         this.streamService = streamService;
@@ -70,7 +67,6 @@ public class AlertScannerThread extends Periodical {
         this.alarmCallbackFactory = alarmCallbackFactory;
         this.emailAlarmCallback = emailAlarmCallback;
         this.indexerSetupService = indexerSetupService;
-        this.indexer = indexer;
         this.serverStatus = serverStatus;
     }
 
@@ -102,7 +98,7 @@ public class AlertScannerThread extends Periodical {
             // Check if a threshold is reached.
             for (AlertCondition alertCondition : streamService.getAlertConditions(stream)) {
                 try {
-                    AlertCondition.CheckResult result = alertService.triggered(alertCondition, indexer);
+                    AlertCondition.CheckResult result = alertService.triggered(alertCondition);
                     if (result.isTriggered()) {
                         // Alert is triggered!
                         LOG.debug("Alert condition [{}] is triggered. Sending alerts.", alertCondition);

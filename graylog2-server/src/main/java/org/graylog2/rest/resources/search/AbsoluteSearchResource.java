@@ -23,8 +23,8 @@ import org.apache.shiro.authz.annotation.RequiresAuthentication;
 import org.elasticsearch.action.search.SearchPhaseExecutionException;
 import org.glassfish.jersey.server.ChunkedOutput;
 import org.graylog2.indexer.IndexHelper;
-import org.graylog2.indexer.Indexer;
 import org.graylog2.indexer.results.ScrollResult;
+import org.graylog2.indexer.searches.Searches;
 import org.graylog2.indexer.searches.SearchesConfig;
 import org.graylog2.indexer.searches.SearchesConfigBuilder;
 import org.graylog2.indexer.searches.Sorting;
@@ -53,8 +53,8 @@ public class AbsoluteSearchResource extends SearchResource {
     private static final Logger LOG = LoggerFactory.getLogger(AbsoluteSearchResource.class);
 
     @Inject
-    public AbsoluteSearchResource(Indexer indexer) {
-        super(indexer);
+    public AbsoluteSearchResource(Searches searches) {
+        super(searches);
     }
 
     @GET @Timed
@@ -92,7 +92,7 @@ public class AbsoluteSearchResource extends SearchResource {
                 .build();
 
         try {
-            return buildSearchResponse(indexer.searches().search(searchesConfig));
+            return buildSearchResponse(searches.search(searchesConfig));
         } catch (IndexHelper.InvalidRangeFormatException e) {
             LOG.warn("Invalid timerange parameters provided. Returning HTTP 400.", e);
             throw new WebApplicationException(400);
@@ -124,7 +124,7 @@ public class AbsoluteSearchResource extends SearchResource {
         final TimeRange timeRange = buildAbsoluteTimeRange(from, to);
 
         try {
-            final ScrollResult scroll = indexer.searches()
+            final ScrollResult scroll = searches
                     .scroll(query, timeRange, limit, offset, fieldList, filter);
             final ChunkedOutput<ScrollResult.ScrollChunk> output = new ChunkedOutput<>(ScrollResult.ScrollChunk.class);
 
@@ -159,7 +159,7 @@ public class AbsoluteSearchResource extends SearchResource {
 
         try {
             return json(buildTermsResult(
-                    indexer.searches().terms(field, size, query, filter, buildAbsoluteTimeRange(from, to))
+                    searches.terms(field, size, query, filter, buildAbsoluteTimeRange(from, to))
             ));
         } catch (IndexHelper.InvalidRangeFormatException e) {
             LOG.warn("Invalid timerange parameters provided. Returning HTTP 400.", e);
@@ -189,7 +189,13 @@ public class AbsoluteSearchResource extends SearchResource {
 
         try {
             return json(buildTermsStatsResult(
-                    indexer.searches().termsStats(keyField, valueField, Indexer.TermsStatsOrder.valueOf(order.toUpperCase()), size, query, filter, buildAbsoluteTimeRange(from, to))
+                    searches.termsStats(keyField,
+                                        valueField,
+                                        Searches.TermsStatsOrder.valueOf(order.toUpperCase()),
+                                        size,
+                                        query,
+                                        filter,
+                                        buildAbsoluteTimeRange(from, to))
             ));
         } catch (IndexHelper.InvalidRangeFormatException e) {
             LOG.warn("Invalid timerange parameters provided. Returning HTTP 400.", e);
@@ -247,9 +253,9 @@ public class AbsoluteSearchResource extends SearchResource {
 
         try {
             return json(buildHistogramResult(
-                    indexer.searches().histogram(
+                    searches.histogram(
                             query,
-                            Indexer.DateHistogramInterval.valueOf(interval),
+                            Searches.DateHistogramInterval.valueOf(interval),
                             filter,
                             buildAbsoluteTimeRange(from, to)
                     )

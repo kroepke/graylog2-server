@@ -29,9 +29,12 @@ import com.google.inject.assistedinject.FactoryModuleBuilder;
 import com.google.inject.multibindings.Multibinder;
 import com.ning.http.client.AsyncHttpClient;
 import org.apache.shiro.mgt.DefaultSecurityManager;
+import org.elasticsearch.node.Node;
 import org.graylog2.Configuration;
 import org.graylog2.alerts.AlertSender;
 import org.graylog2.alerts.FormattedEmailAlertSender;
+import org.graylog2.alerts.types.FieldValueAlertCondition;
+import org.graylog2.alerts.types.MessageCountAlertCondition;
 import org.graylog2.bindings.providers.*;
 import org.graylog2.buffers.OutputBufferWatermark;
 import org.graylog2.buffers.processors.OutputBufferProcessor;
@@ -40,23 +43,16 @@ import org.graylog2.caches.DiskJournalCache;
 import org.graylog2.database.MongoConnection;
 import org.graylog2.filters.FilterService;
 import org.graylog2.filters.FilterServiceImpl;
-import org.graylog2.indexer.Indexer;
-import org.graylog2.indexer.MessageGatewayImpl;
-import org.graylog2.indexer.cluster.Cluster;
-import org.graylog2.indexer.counts.Counts;
 import org.graylog2.indexer.healing.FixDeflectorByDeleteJob;
 import org.graylog2.indexer.healing.FixDeflectorByMoveJob;
-import org.graylog2.indexer.indices.Indices;
 import org.graylog2.indexer.indices.jobs.OptimizeIndexJob;
 import org.graylog2.indexer.ranges.RebuildIndexRangesJob;
-import org.graylog2.indexer.searches.Searches;
 import org.graylog2.inputs.BasicCache;
 import org.graylog2.inputs.InputCache;
 import org.graylog2.inputs.OutputCache;
 import org.graylog2.jersey.container.netty.SecurityContextFactory;
 import org.graylog2.plugin.PluginMetaData;
 import org.graylog2.plugin.RulesEngine;
-import org.graylog2.plugin.indexer.MessageGateway;
 import org.graylog2.rest.NotFoundExceptionMapper;
 import org.graylog2.rest.RestAccessLogFilter;
 import org.graylog2.rest.ValidationExceptionMapper;
@@ -109,12 +105,11 @@ public class ServerBindings extends AbstractModule {
         install(new FactoryModuleBuilder().build(ServerProcessBufferProcessor.Factory.class));
         install(new FactoryModuleBuilder().build(RebuildIndexRangesJob.Factory.class));
         install(new FactoryModuleBuilder().build(OptimizeIndexJob.Factory.class));
-        install(new FactoryModuleBuilder().build(Searches.Factory.class));
-        install(new FactoryModuleBuilder().build(Counts.Factory.class));
-        install(new FactoryModuleBuilder().build(Cluster.Factory.class));
-        install(new FactoryModuleBuilder().build(Indices.Factory.class));
         install(new FactoryModuleBuilder().build(FixDeflectorByDeleteJob.Factory.class));
         install(new FactoryModuleBuilder().build(FixDeflectorByMoveJob.Factory.class));
+
+        install(new FactoryModuleBuilder().build(FieldValueAlertCondition.Factory.class));
+        install(new FactoryModuleBuilder().build(MessageCountAlertCondition.Factory.class));
     }
 
     private void bindSingletons() {
@@ -131,7 +126,7 @@ public class ServerBindings extends AbstractModule {
         bind(ServerStatus.class).in(Scopes.SINGLETON);
 
         bind(OutputBufferWatermark.class).toInstance(new OutputBufferWatermark());
-        bind(Indexer.class).toProvider(IndexerProvider.class);
+        bind(Node.class).toProvider(EsNodeProvider.class).in(Scopes.SINGLETON);
         bind(SystemJobManager.class).toProvider(SystemJobManagerProvider.class);
         bind(InputRegistry.class).toProvider(ServerInputRegistryProvider.class);
         bind(RulesEngine.class).toProvider(RulesEngineProvider.class);
@@ -152,7 +147,6 @@ public class ServerBindings extends AbstractModule {
     }
 
     private void bindInterfaces() {
-        bind(MessageGateway.class).to(MessageGatewayImpl.class);
         bind(SecurityContextFactory.class).to(ShiroSecurityContextFactory.class);
         bind(AlertSender.class).to(FormattedEmailAlertSender.class);
         bind(StreamRouter.class);

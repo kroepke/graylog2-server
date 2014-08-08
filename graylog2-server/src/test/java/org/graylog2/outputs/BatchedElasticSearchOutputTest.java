@@ -3,7 +3,7 @@ package org.graylog2.outputs;
 import com.codahale.metrics.MetricRegistry;
 import com.google.common.collect.Lists;
 import org.graylog2.Configuration;
-import org.graylog2.indexer.Indexer;
+import org.graylog2.indexer.messages.Messages;
 import org.graylog2.plugin.Message;
 import org.graylog2.plugin.Tools;
 import org.mockito.ArgumentMatcher;
@@ -20,7 +20,7 @@ public class BatchedElasticSearchOutputTest {
     @Test
     public void flushingBatchWritesBulk() {
 
-        Indexer indexer = mock(Indexer.class);
+        Messages messages = mock(Messages.class);
         Configuration config = mock(Configuration.class);
         when(config.getOutputBatchSize()).thenReturn(10);
         MetricRegistry metricRegistry = new MetricRegistry();
@@ -39,7 +39,7 @@ public class BatchedElasticSearchOutputTest {
             }
         };
 
-        BatchedElasticSearchOutput output = new BatchedElasticSearchOutput(metricRegistry, indexer, config);
+        BatchedElasticSearchOutput output = new BatchedElasticSearchOutput(metricRegistry, messages, config);
 
         try {
             output.write(msg1);
@@ -51,7 +51,7 @@ public class BatchedElasticSearchOutputTest {
 
         output.flush(false);
 
-        verify(indexer, times(1)).bulkIndex(argThat(isMessageList));
+        verify(messages, times(1)).bulkIndex(argThat(isMessageList));
 
     }
 

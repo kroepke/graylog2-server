@@ -21,7 +21,6 @@ package org.graylog2.initializers;
 
 import com.google.common.util.concurrent.AbstractIdleService;
 import org.graylog2.indexer.Deflector;
-import org.graylog2.indexer.Indexer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -35,15 +34,12 @@ import javax.inject.Singleton;
 public class DeflectorSetupService extends AbstractIdleService {
     private static final Logger LOG = LoggerFactory.getLogger(DeflectorSetupService.class);
     private final Deflector deflector;
-    private final Indexer indexer;
     private final IndexerSetupService indexerSetupService;
 
     @Inject
     public DeflectorSetupService(Deflector deflector,
-                                 Indexer indexer,
                                  IndexerSetupService indexerSetupService) {
         this.deflector = deflector;
-        this.indexer = indexer;
         this.indexerSetupService = indexerSetupService;
     }
 

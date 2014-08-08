@@ -26,7 +26,7 @@ import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Ordering;
 import com.google.inject.Inject;
-import org.graylog2.indexer.Indexer;
+import org.graylog2.indexer.messages.Messages;
 import org.graylog2.plugin.Message;
 import org.graylog2.plugin.configuration.Configuration;
 import org.graylog2.plugin.configuration.ConfigurationRequest;
@@ -50,12 +50,12 @@ public class ElasticSearchOutput implements MessageOutput {
     private final AtomicBoolean isRunning = new AtomicBoolean(false);
     private final Meter writes;
     private final Timer processTime;
-    private final Indexer indexer;
+    private final Messages messages;
 
     @Inject
     public ElasticSearchOutput(MetricRegistry metricRegistry,
-                               Indexer indexer) {
-        this.indexer = indexer;
+                               Messages messages) {
+        this.messages = messages;
         // Only constructing metrics here. write() get's another Core reference. (because this technically is a plugin)
         this.writes = metricRegistry.meter(name(ElasticSearchOutput.class, "writes"));
         this.processTime = metricRegistry.timer(name(ElasticSearchOutput.class, "processTime"));
@@ -73,16 +73,16 @@ public class ElasticSearchOutput implements MessageOutput {
     }
 
     @Override
-    public void write(List<Message> messages) throws Exception {
+    public void write(List<Message> messageList) throws Exception {
         if (LOG.isTraceEnabled()) {
-            final List<String> sortedIds = Ordering.natural().sortedCopy(Lists.transform(messages,
+            final List<String> sortedIds = Ordering.natural().sortedCopy(Lists.transform(messageList,
                                                                                          Message.ID_FUNCTION));
             LOG.trace("Writing message ids to [{}]: <{}>", getName(), Joiner.on(", ").join(sortedIds));
         }
 
-        writes.mark(messages.size());
+        writes.mark(messageList.size());
         Timer.Context tcx = processTime.time();
-        indexer.bulkIndex(messages);
+        messages.bulkIndex(messageList);
         tcx.stop();
     }
 

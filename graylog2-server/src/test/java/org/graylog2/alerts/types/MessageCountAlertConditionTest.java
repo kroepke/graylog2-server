@@ -56,7 +56,7 @@ public class MessageCountAlertConditionTest extends AlertConditionTest {
         searchCountShouldReturn(threshold+1);
         // AlertCondition was never triggered before
         alertLastTriggered(-1);
-        final AlertCondition.CheckResult result = alertService.triggered(messageCountAlertCondition, indexer);
+        final AlertCondition.CheckResult result = alertService.triggered(messageCountAlertCondition);
 
         assertFalse("We should not be in grace period!", alertService.inGracePeriod(messageCountAlertCondition));
         assertTriggered(messageCountAlertCondition, result);
@@ -70,7 +70,7 @@ public class MessageCountAlertConditionTest extends AlertConditionTest {
         searchCountShouldReturn(threshold - 1);
         alertLastTriggered(-1);
 
-        final AlertCondition.CheckResult result = alertService.triggered(messageCountAlertCondition, indexer);
+        final AlertCondition.CheckResult result = alertService.triggered(messageCountAlertCondition);
 
         assertTriggered(messageCountAlertCondition, result);
     }
@@ -83,7 +83,7 @@ public class MessageCountAlertConditionTest extends AlertConditionTest {
         searchCountShouldReturn(threshold);
         alertLastTriggered(-1);
 
-        final AlertCondition.CheckResult result = alertService.triggered(messageCountAlertCondition, indexer);
+        final AlertCondition.CheckResult result = alertService.triggered(messageCountAlertCondition);
 
         assertNotTriggered(result);
     }
@@ -96,7 +96,7 @@ public class MessageCountAlertConditionTest extends AlertConditionTest {
         searchCountShouldReturn(threshold);
         alertLastTriggered(-1);
 
-        final AlertCondition.CheckResult result = alertService.triggered(messageCountAlertCondition, indexer);
+        final AlertCondition.CheckResult result = alertService.triggered(messageCountAlertCondition);
 
         assertNotTriggered(result);
     }
@@ -120,13 +120,13 @@ public class MessageCountAlertConditionTest extends AlertConditionTest {
         alertLastTriggered(0);
         assertTrue("Alert condition should be in grace period because grace is greater than zero and alert has just been triggered!",
                 alertService.inGracePeriod(messageCountAlertCondition));
-        final AlertCondition.CheckResult resultJustTriggered = alertService.triggered(messageCountAlertCondition, indexer);
+        final AlertCondition.CheckResult resultJustTriggered = alertService.triggered(messageCountAlertCondition);
         assertNotTriggered(resultJustTriggered);
 
         alertLastTriggered(grace*60-1);
         assertTrue("Alert condition should be in grace period because grace is greater than zero and alert has been triggered during grace period!",
                 alertService.inGracePeriod(messageCountAlertCondition));
-        final AlertCondition.CheckResult resultTriggeredAgo = alertService.triggered(messageCountAlertCondition, indexer);
+        final AlertCondition.CheckResult resultTriggeredAgo = alertService.triggered(messageCountAlertCondition);
         assertNotTriggered(resultTriggeredAgo);
     }
 
@@ -152,6 +152,7 @@ public class MessageCountAlertConditionTest extends AlertConditionTest {
 
     protected MessageCountAlertCondition getMessageCountAlertCondition(Map<String, Object> parameters) {
         return new MessageCountAlertCondition(
+                searches,
                 stream,
                 CONDITION_ID,
                 Tools.iso8601(),
