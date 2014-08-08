@@ -44,8 +44,4 @@ public class Counts {
         return c.count(new CountRequest(deflector.getAllDeflectorIndexNames())).actionGet().getCount();
     }
 
-    public interface Factory {
-        Counts create(Client client);
-    }
-
 }
