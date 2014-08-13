@@ -30,9 +30,11 @@ import org.elasticsearch.action.WriteConsistencyLevel;
 import org.elasticsearch.action.admin.cluster.state.ClusterStateRequest;
 import org.elasticsearch.action.admin.indices.alias.get.IndicesGetAliasesRequest;
 import org.elasticsearch.action.admin.indices.close.CloseIndexRequest;
+import org.elasticsearch.action.admin.indices.close.CloseIndexResponse;
 import org.elasticsearch.action.admin.indices.create.CreateIndexRequest;
 import org.elasticsearch.action.admin.indices.create.CreateIndexResponse;
 import org.elasticsearch.action.admin.indices.delete.DeleteIndexRequest;
+import org.elasticsearch.action.admin.indices.delete.DeleteIndexResponse;
 import org.elasticsearch.action.admin.indices.exists.indices.IndicesExistsRequest;
 import org.elasticsearch.action.admin.indices.exists.indices.IndicesExistsResponse;
 import org.elasticsearch.action.admin.indices.flush.FlushRequest;
@@ -136,12 +138,14 @@ public class Indices implements IndexManagement {
 
     }
 
-    public void delete(String indexName) {
-        c.admin().indices().delete(new DeleteIndexRequest(indexName)).actionGet();
+    public boolean delete(String indexName) {
+        final DeleteIndexResponse response = c.admin().indices().delete(new DeleteIndexRequest(indexName)).actionGet();
+        return response.isAcknowledged();
     }
 
-    public void close(String indexName) {
-        c.admin().indices().close(new CloseIndexRequest(indexName)).actionGet();
+    public boolean close(String indexName) {
+        final CloseIndexResponse response = c.admin().indices().close(new CloseIndexRequest(indexName)).actionGet();
+        return response.isAcknowledged();
     }
 
     public long numberOfMessages(String indexName) throws IndexNotFoundException {

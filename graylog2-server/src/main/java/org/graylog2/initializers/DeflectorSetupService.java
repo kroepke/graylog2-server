@@ -21,11 +21,14 @@ package org.graylog2.initializers;
 
 import com.google.common.util.concurrent.AbstractIdleService;
 import org.graylog2.indexer.Deflector;
+import org.graylog2.indexer.IndexGroupConfig;
+import org.graylog2.indexer.IndexGroupConfigService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.inject.Inject;
 import javax.inject.Singleton;
+import java.util.concurrent.Executors;
 
 /**
  * @author Dennis Oelkers <dennis@torch.sh>
@@ -35,21 +38,32 @@ public class DeflectorSetupService extends AbstractIdleService {
     private static final Logger LOG = LoggerFactory.getLogger(DeflectorSetupService.class);
     private final Deflector deflector;
     private final IndexerSetupService indexerSetupService;
+    private final IndexGroupConfigService indexGroupConfigService;
 
     @Inject
     public DeflectorSetupService(Deflector deflector,
-                                 IndexerSetupService indexerSetupService) {
+                                 IndexerSetupService indexerSetupService, final IndexGroupConfigService indexGroupConfigService) {
         this.deflector = deflector;
         this.indexerSetupService = indexerSetupService;
+        this.indexGroupConfigService = indexGroupConfigService;
+
+        indexerSetupService.addListener(new Listener() {
+            @Override
+            public void running() {
+                LOG.info("Setting up deflector indices.");
+                final Deflector deflector = DeflectorSetupService.this.deflector;
+
+                for (IndexGroupConfig indexGroupConfig : indexGroupConfigService.getIndexGroups()) {
+                    LOG.info("Deflector for index {}", indexGroupConfig.getName());
+                    deflector.setUp();
+                }
+            }
+        }, Executors.newSingleThreadExecutor());
+
     }
 
     @Override
     protected void startUp() throws Exception {
-        if (indexerSetupService.isRunning()) {
-            // Set up deflector.
-            LOG.info("Setting up deflector.");
-            deflector.setUp();
-        }
     }
 
     @Override

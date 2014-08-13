@@ -86,6 +86,11 @@ public abstract class Periodical implements Runnable {
         }
     }
 
+    /**
+     * Logger to use when logging exceptions, to make it easier to determine which Periodical failed.
+     *
+     * @return Logger
+     */
     protected abstract Logger getLogger();
 
     public abstract void doRun();

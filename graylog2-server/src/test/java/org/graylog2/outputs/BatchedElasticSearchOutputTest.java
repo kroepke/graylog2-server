@@ -3,6 +3,7 @@ package org.graylog2.outputs;
 import com.codahale.metrics.MetricRegistry;
 import com.google.common.collect.Lists;
 import org.graylog2.Configuration;
+import org.graylog2.indexer.MessageToIndexRouter;
 import org.graylog2.indexer.messages.Messages;
 import org.graylog2.plugin.Message;
 import org.graylog2.plugin.Tools;
@@ -39,7 +40,8 @@ public class BatchedElasticSearchOutputTest {
             }
         };
 
-        BatchedElasticSearchOutput output = new BatchedElasticSearchOutput(metricRegistry, messages, config);
+        BatchedElasticSearchOutput output = new BatchedElasticSearchOutput(metricRegistry, messages, config,
+                                                                           mock(MessageToIndexRouter.class));
 
         try {
             output.write(msg1);
@@ -51,7 +53,7 @@ public class BatchedElasticSearchOutputTest {
 
         output.flush(false);
 
-        verify(messages, times(1)).bulkIndex(argThat(isMessageList));
+        verify(messages, times(1)).bulkIndex(argThat(isMessageList), any(MessageToIndexRouter.class));
 
     }
 

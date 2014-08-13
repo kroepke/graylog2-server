@@ -26,6 +26,7 @@ import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Ordering;
 import com.google.inject.Inject;
+import org.graylog2.indexer.MessageToIndexRouter;
 import org.graylog2.indexer.messages.Messages;
 import org.graylog2.plugin.Message;
 import org.graylog2.plugin.configuration.Configuration;
@@ -51,11 +52,14 @@ public class ElasticSearchOutput implements MessageOutput {
     private final Meter writes;
     private final Timer processTime;
     private final Messages messages;
+    private final MessageToIndexRouter messagesRouter;
 
     @Inject
     public ElasticSearchOutput(MetricRegistry metricRegistry,
-                               Messages messages) {
+                               Messages messages,
+                               MessageToIndexRouter messagesRouter) {
         this.messages = messages;
+        this.messagesRouter = messagesRouter;
         // Only constructing metrics here. write() get's another Core reference. (because this technically is a plugin)
         this.writes = metricRegistry.meter(name(ElasticSearchOutput.class, "writes"));
         this.processTime = metricRegistry.timer(name(ElasticSearchOutput.class, "processTime"));
@@ -82,7 +86,7 @@ public class ElasticSearchOutput implements MessageOutput {
 
         writes.mark(messageList.size());
         Timer.Context tcx = processTime.time();
-        messages.bulkIndex(messageList);
+        messages.bulkIndex(messageList, messagesRouter);
         tcx.stop();
     }
 

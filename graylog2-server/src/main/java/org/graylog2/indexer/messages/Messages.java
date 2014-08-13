@@ -20,6 +20,7 @@
 package org.graylog2.indexer.messages;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Multimap;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import org.elasticsearch.action.WriteConsistencyLevel;
@@ -40,7 +41,8 @@ import org.elasticsearch.indices.IndexMissingException;
 import org.elasticsearch.node.Node;
 import org.graylog2.Configuration;
 import org.graylog2.indexer.DeadLetter;
-import org.graylog2.indexer.Deflector;
+import org.graylog2.indexer.Index;
+import org.graylog2.indexer.MessageToIndexRouter;
 import org.graylog2.indexer.results.ResultMessage;
 import org.graylog2.plugin.Message;
 import org.slf4j.Logger;
@@ -98,16 +100,23 @@ public class Messages {
 		return tokens;
 	}
 
-    public boolean bulkIndex(final List<Message> messages) {
+    public boolean bulkIndex(final List<Message> messages, MessageToIndexRouter messageRouter) {
         if (messages.isEmpty()) {
             return true;
         }
 
         final BulkRequestBuilder request = c.prepareBulk();
-        for (Message msg : messages) {
-            request.add(buildIndexRequest(configuration.getElasticSearchIndexPrefix() + "_" + Deflector.DEFLECTOR_SUFFIX,
+
+        final Multimap<Index, Message> route = messageRouter.route(messages);
+        for (Map.Entry<Index, Message> routerEntry : route.entries()) {
+            final Index index = routerEntry.getKey();
+            final Message msg = routerEntry.getValue();
+            if (log.isTraceEnabled()) {
+                log.trace("Routing message {} to index {}", msg.getId(), index.getName());
+            }
+            request.add(buildIndexRequest(index.getName(),
                                           msg.toElasticSearchObject(),
-                                          msg.getId())); // Main index.
+                                          msg.getId()));
         }
 
         request.setConsistencyLevel(WriteConsistencyLevel.ONE);

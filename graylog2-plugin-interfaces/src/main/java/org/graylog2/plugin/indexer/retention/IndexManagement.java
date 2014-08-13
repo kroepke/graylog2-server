@@ -23,6 +23,6 @@ package org.graylog2.plugin.indexer.retention;
  * @author Dennis Oelkers <dennis@torch.sh>
  */
 public interface IndexManagement {
-    void delete(String indexName);
-    void close(String indexName);
+    boolean delete(String indexName);
+    boolean close(String indexName);
 }

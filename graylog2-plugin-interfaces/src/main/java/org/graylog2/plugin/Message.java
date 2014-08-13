@@ -30,7 +30,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.InetAddress;
-import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -302,7 +301,10 @@ public class Message {
     public List<String> getStreamIds() {
         List<String> result = new ArrayList<String>();
         try {
-            result.addAll(getFieldAs(result.getClass(), "streams"));
+            final List streams = getFieldAs(result.getClass(), "streams");
+            if (streams != null) {
+                result.addAll(streams);
+            }
         } catch (ClassCastException e) {
         }
 

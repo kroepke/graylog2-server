@@ -101,8 +101,11 @@ public class Configuration extends BaseConfiguration {
     private String elasticSearchConfigFile; // = "/etc/graylog2-elasticsearch.yml";
 
     @Parameter(value = "elasticsearch_index_prefix", required = true)
-    private String elasticsearchIndexPrefix = "graylog2";
-    
+    private String elasticsearchIndexPrefix = "gl2";
+
+    @Parameter(value = "elasticsearch_default_index_name", required = true)
+    private String elasticsearchDefaultIndexName = "messages";
+
     @Parameter(value = "elasticsearch_max_docs_per_index", validator = PositiveIntegerValidator.class, required = true)
     private int elasticsearchMaxDocsPerIndex = 80000000;
     
@@ -341,7 +344,11 @@ public class Configuration extends BaseConfiguration {
     public String getElasticSearchIndexPrefix() {
         return this.elasticsearchIndexPrefix;
     }
-    
+
+    public String getElasticsearchDefaultIndexName() {
+        return elasticsearchDefaultIndexName;
+    }
+
     public int getElasticSearchMaxDocsPerIndex() {
         return this.elasticsearchMaxDocsPerIndex;
     }

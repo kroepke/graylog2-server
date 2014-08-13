@@ -25,6 +25,7 @@ import com.codahale.metrics.MetricRegistry;
 import com.codahale.metrics.Timer;
 import com.google.common.collect.Lists;
 import org.graylog2.Configuration;
+import org.graylog2.indexer.MessageToIndexRouter;
 import org.graylog2.indexer.messages.Messages;
 import org.graylog2.plugin.Message;
 import org.slf4j.Logger;
@@ -52,8 +53,11 @@ public class BatchedElasticSearchOutput extends ElasticSearchOutput {
     private final Meter bufferFlushesRequested;
 
     @Inject
-    public BatchedElasticSearchOutput(MetricRegistry metricRegistry, Messages messages, Configuration configuration) {
-        super(metricRegistry, messages);
+    public BatchedElasticSearchOutput(MetricRegistry metricRegistry,
+                                      Messages messages,
+                                      Configuration configuration,
+                                      MessageToIndexRouter messagesRouter) {
+        super(metricRegistry, messages, messagesRouter);
         this.buffer = Lists.newArrayList();
         this.maxBufferSize = configuration.getOutputBatchSize();
         this.flushThread = Executors.newSingleThreadExecutor();
