@@ -29,6 +29,7 @@ export type AppConfigs = {
   isCloud: boolean,
   pluginUISettings: { [key: string]: {} },
   featureFlags: { [key: string]: string },
+  analytics: { api_key: string, host: string, enabled: boolean },
 };
 
 declare global {
@@ -92,6 +93,9 @@ const AppConfig = {
     return appConfig()?.pluginUISettings?.['org.graylog.plugins.customization.notifications'] ?? {};
   },
 
+  analytics() {
+    return appConfig()?.analytics;
+  }
 };
 
 export default AppConfig;

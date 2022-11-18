@@ -50,6 +50,7 @@ export type PreferencesUpdateMap = {
 };
 
 export type PreferencesMap = {
+  diagnosticsIsAnonymized: boolean;
   enableSmartSearch: boolean,
   updateUnfocussed: boolean,
   dashboardSidebarIsPinned?: boolean,

@@ -22,6 +22,7 @@ import com.floreysoft.jmte.Engine;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.io.Resources;
 import org.graylog2.Configuration;
+import org.graylog2.configuration.AnalyticsConfiguration;
 import org.graylog2.configuration.HttpConfiguration;
 import org.graylog2.featureflag.FeatureFlags;
 import org.graylog2.rest.MoreMediaTypes;
@@ -47,6 +48,7 @@ import static java.util.Objects.requireNonNull;
 public class AppConfigResource {
     private final Configuration configuration;
     private final HttpConfiguration httpConfiguration;
+    private final AnalyticsConfiguration analyticsConfiguration;
     private final Engine templateEngine;
     private final Map<String, PluginUISettingsProvider> settingsProviders;
     private final ObjectMapper objectMapper;
@@ -55,12 +57,14 @@ public class AppConfigResource {
     @Inject
     public AppConfigResource(Configuration configuration,
                              HttpConfiguration httpConfiguration,
+                             AnalyticsConfiguration analyticsConfiguration,
                              Engine templateEngine,
                              Map<String, PluginUISettingsProvider> settingsProviders,
                              ObjectMapper objectMapper,
                              FeatureFlags featureFlags) {
         this.configuration = requireNonNull(configuration, "configuration");
         this.httpConfiguration = requireNonNull(httpConfiguration, "httpConfiguration");
+        this.analyticsConfiguration = analyticsConfiguration;
         this.templateEngine = requireNonNull(templateEngine, "templateEngine");
         this.settingsProviders = requireNonNull(settingsProviders);
         this.objectMapper = objectMapper;
@@ -86,6 +90,7 @@ public class AppConfigResource {
                 .put("isCloud", configuration.isCloud())
                 .put("pluginUISettings", buildPluginUISettings())
                 .put("featureFlags", toPrettyJsonString(featureFlags.getAll()))
+                .put("analytics", toPrettyJsonString(analyticsConfiguration.toMap()))
                 .build();
         return templateEngine.transform(template, model);
     }

@@ -28,6 +28,7 @@ import GraylogThemeProvider from 'theme/GraylogThemeProvider';
 import CustomizationProvider from 'contexts/CustomizationProvider';
 import ViewsBindings from 'views/bindings';
 import GlobalThemeStyles from 'theme/GlobalThemeStyles';
+import initAnalytics from 'analytics/init';
 
 PluginStore.register(new PluginManifest({}, ViewsBindings));
 
@@ -55,3 +56,5 @@ window.onload = () => {
 
   renderAppContainer(appContainer);
 };
+
+initAnalytics();
