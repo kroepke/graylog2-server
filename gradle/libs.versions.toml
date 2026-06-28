@@ -1,19 +1,506 @@
 [versions]
-protoc = "4.35.1"
-grpcJava = "1.82.0"
-antlr = "4.13.2"
-errorprone = "2.50.0"
-autoService = "1.1.1"
-autoValue = "1.11.1"
-jadconfig = "1.1.0"
+# --- Annotation processors (used in buildSrc convention plugin) ---
+protoc           = "4.35.1"
+grpcJava         = "1.82.0"
+antlr            = "4.13.2"
+errorprone       = "2.50.0"
+autoService      = "1.1.1"
+autoValue        = "1.11.1"
+jadconfig        = "1.1.0"
+
+# --- BOM versions ---
+log4j            = "2.26.0"
+netty            = "4.2.15.Final"
+nettyTcnative    = "2.0.79.Final"
+jackson          = "2.22.0"
+awssdk           = "2.46.0"
+awssdk1          = "1.12.797"
+okhttp           = "5.4.0"
+metrics          = "4.2.39"
+guice            = "7.0.0"
+hk2              = "3.1.1"
+jersey           = "4.0.2"
+prometheus       = "0.16.0"
+opentelemetry    = "1.63.0"
+mcpSdk           = "1.1.3"
+junit            = "6.1.0"
+mockito          = "5.23.0"
+testcontainers   = "2.0.5"
+
+# --- Individual library versions ---
+slf4j                    = "2.0.18"
+opentelemetryInstr       = "2.28.1"
+airline                  = "3.2.0"
+guava                    = "33.6.0-jre"
+caffeine                 = "3.2.4"
+guavaRetrying            = "2.0.0"
+shiro                    = "2.2.1"
+jjwt                     = "0.13.0"
+mongodb                  = "5.8.0"
+mongojack                = "5.1.0"
+jsoup                    = "1.22.2"
+poi                      = "5.5.1"
+sivMode                  = "1.6.1"
+commonsEmail             = "1.6.0"
+commonsValidator         = "1.10.1"
+commonsLang3             = "3.20.0"
+commonsIo                = "2.22.0"
+commonsCodec             = "1.22.0"
+commonsNet               = "3.13.0"
+commonsCsv               = "1.14.1"
+grizzlyWebsockets        = "4.0.2"
+jakartaAnnotationApi     = "3.0.0"
+jakartaInjectApi         = "2.0.1"
+jakartaValidationApi     = "3.1.1"
+jakartaWsRs              = "4.0.0"
+jaxbApi                  = "2.3.1"
+javaxAnnotationApi       = "1.3.2"
+reflections              = "0.10.2"
+classgraph               = "4.8.184"
+opencsv                  = "2.3"
+natty                    = "0.13"
+jmte                     = "7.0.3"
+disruptor                = "4.0.0"
+jodaTime                 = "2.14.2"
+threetenExtra            = "1.10.0"
+uuidRepack               = "3.2.1"
+ulid                     = "8.3.0"
+grok                     = "0.1.9-graylog-3"
+gelfclient               = "1.5.1"
+swagger                  = "2.2.51"
+swaggerParser            = "2.1.44"
+hibernateValidator       = "9.1.0.Final"
+bouncycastle             = "1.84"
+lucene                   = "10.4.0"
+googleCloudStorage       = "2.69.0"
+azureBlobStorage         = "12.35.0"
+apacheDirectoryApi       = "2.1.8"
+apacheDs                 = "2.0.0.AM27"
+kafka                    = "4.3.1"
+kafka09                  = "0.9.0.1-7"
+awsMskIamAuth            = "2.3.7"
+syslog4j                 = "0.9.63"
+jsonPathLib              = "3.0.0"
+zstd                     = "1.5.7-11"
+javaSemver               = "0.10.2"
+semver4j                 = "2.2.0-graylog.1"
+hdrHistogram             = "2.2.2"
+oshiCore                 = "7.3.1"
+amqpClient               = "5.32.0"
+geoip2                   = "5.1.0"
+cefParser                = "0.0.1.10"
+jool                     = "0.9.15"
+freemarker               = "2.3.34"
+asciitable               = "0.3.2"
+awsKinesisClient         = "3.4.3"
+assertjCore              = "3.27.7"
+assertjJodaTime          = "2.2.0"
+restAssured              = "6.0.0"
+opensearchTestcontainers = "4.1.0"
+guiceExtension           = "1.2.1"
+jbcrypt                  = "0.4"
+unboundidLdap            = "7.0.5"
+retrofit                 = "3.0.0"
+osPlatformFinder         = "1.2.3"
+equalsverifier           = "4.5"
+jsonassert               = "1.5.3"
+pktsCore                 = "3.0.18"
+cronUtils                = "9.2.1"
+rateLimitedLogger        = "2.0.2"
+streamex                 = "0.8.4"
+stateless4j              = "2.6.0"
+jsonSchemaGenerator      = "4.38.0"
 
 [libraries]
-# Annotation processors
-errorprone-core = { module = "com.google.errorprone:error_prone_core", version.ref = "errorprone" }
-auto-service = { module = "com.google.auto.service:auto-service", version.ref = "autoService" }
-auto-value = { module = "com.google.auto.value:auto-value", version.ref = "autoValue" }
-jadconfig = { module = "org.graylog:jadconfig", version.ref = "jadconfig" }
-# Codegen artifacts
-protoc = { module = "com.google.protobuf:protoc", version.ref = "protoc" }
-grpc-protoc-gen = { module = "io.grpc:protoc-gen-grpc-java", version.ref = "grpcJava" }
-antlr = { module = "org.antlr:antlr4", version.ref = "antlr" }
+# ============================================================
+# Annotation processors (referenced from buildSrc convention plugin)
+# ============================================================
+errorprone-core    = { module = "com.google.errorprone:error_prone_core",      version.ref = "errorprone" }
+auto-service       = { module = "com.google.auto.service:auto-service",        version.ref = "autoService" }
+auto-value         = { module = "com.google.auto.value:auto-value",            version.ref = "autoValue" }
+jadconfig          = { module = "org.graylog:jadconfig",                       version.ref = "jadconfig" }
+# Annotations-only jar (compileOnly; auto-value processor already added by convention plugin)
+google-auto-value-annotations = { module = "com.google.auto.value:auto-value-annotations", version.ref = "autoValue" }
+
+# ============================================================
+# Codegen artifacts (protoc, antlr)
+# ============================================================
+protoc          = { module = "com.google.protobuf:protoc",          version.ref = "protoc" }
+grpc-protoc-gen = { module = "io.grpc:protoc-gen-grpc-java",        version.ref = "grpcJava" }
+antlr           = { module = "org.antlr:antlr4",                    version.ref = "antlr" }
+antlr4-runtime  = { module = "org.antlr:antlr4-runtime",            version.ref = "antlr" }
+
+# ============================================================
+# BOMs
+# ============================================================
+bom-log4j          = { module = "org.apache.logging.log4j:log4j-bom",         version.ref = "log4j" }
+bom-netty          = { module = "io.netty:netty-bom",                         version.ref = "netty" }
+bom-jackson        = { module = "com.fasterxml.jackson:jackson-bom",           version.ref = "jackson" }
+bom-grpc           = { module = "io.grpc:grpc-bom",                           version.ref = "grpcJava" }
+bom-awssdk         = { module = "software.amazon.awssdk:bom",                 version.ref = "awssdk" }
+bom-awssdk1        = { module = "com.amazonaws:aws-java-sdk-bom",             version.ref = "awssdk1" }
+bom-protobuf       = { module = "com.google.protobuf:protobuf-bom",           version.ref = "protoc" }
+bom-okhttp         = { module = "com.squareup.okhttp3:okhttp-bom",            version.ref = "okhttp" }
+bom-metrics        = { module = "io.dropwizard.metrics:metrics-bom",          version.ref = "metrics" }
+bom-guice          = { module = "com.google.inject:guice-bom",                version.ref = "guice" }
+bom-hk2            = { module = "org.glassfish.hk2:hk2-bom",                 version.ref = "hk2" }
+bom-jersey         = { module = "org.glassfish.jersey:jersey-bom",            version.ref = "jersey" }
+bom-prometheus     = { module = "io.prometheus:simpleclient_bom",             version.ref = "prometheus" }
+bom-opentelemetry  = { module = "io.opentelemetry:opentelemetry-bom",         version.ref = "opentelemetry" }
+bom-mcp            = { module = "io.modelcontextprotocol.sdk:mcp-bom",        version.ref = "mcpSdk" }
+bom-junit          = { module = "org.junit:junit-bom",                        version.ref = "junit" }
+bom-mockito        = { module = "org.mockito:mockito-bom",                    version.ref = "mockito" }
+bom-testcontainers = { module = "org.testcontainers:testcontainers-bom",      version.ref = "testcontainers" }
+
+# ============================================================
+# OpenTelemetry
+# ============================================================
+opentelemetry-api                    = { module = "io.opentelemetry:opentelemetry-api" }
+opentelemetry-instrumentation-annotations = { module = "io.opentelemetry.instrumentation:opentelemetry-instrumentation-annotations", version.ref = "opentelemetryInstr" }
+
+# ============================================================
+# CLI / Airline
+# ============================================================
+airline = { module = "com.github.rvesse:airline", version.ref = "airline" }
+
+# ============================================================
+# Google (Guava, Guice)
+# ============================================================
+guava          = { module = "com.google.guava:guava",                                         version.ref = "guava" }
+caffeine       = { module = "com.github.ben-manes.caffeine:caffeine",                         version.ref = "caffeine" }
+guava-retrying = { module = "com.github.rholder:guava-retrying",                              version.ref = "guavaRetrying" }
+guice          = { module = "com.google.inject:guice" }                               # version from guice-bom
+guice-assistedinject = { module = "com.google.inject.extensions:guice-assistedinject" }      # version from guice-bom
+
+# ============================================================
+# Security / Auth
+# ============================================================
+shiro-core  = { module = "org.apache.shiro:shiro-core",  version.ref = "shiro" }
+jjwt-api    = { module = "io.jsonwebtoken:jjwt-api",     version.ref = "jjwt" }
+jjwt-impl   = { module = "io.jsonwebtoken:jjwt-impl",    version.ref = "jjwt" }
+jjwt-jackson = { module = "io.jsonwebtoken:jjwt-jackson", version.ref = "jjwt" }
+jbcrypt     = { module = "org.mindrot:jbcrypt",          version.ref = "jbcrypt" }
+bouncycastle-bcpkix = { module = "org.bouncycastle:bcpkix-jdk18on", version.ref = "bouncycastle" }
+
+# ============================================================
+# Jakarta / DI
+# ============================================================
+jakarta-inject-api     = { module = "jakarta.inject:jakarta.inject-api",      version.ref = "jakartaInjectApi" }
+jakarta-annotation-api = { module = "jakarta.annotation:jakarta.annotation-api", version.ref = "jakartaAnnotationApi" }
+jakarta-validation-api = { module = "jakarta.validation:jakarta.validation-api", version.ref = "jakartaValidationApi" }
+jakarta-ws-rs-api      = { module = "jakarta.ws.rs:jakarta.ws.rs-api",         version.ref = "jakartaWsRs" }
+javax-annotation-api   = { module = "javax.annotation:javax.annotation-api",   version.ref = "javaxAnnotationApi" }
+javax-xml-bind-api     = { module = "javax.xml.bind:jaxb-api",                 version.ref = "jaxbApi" }
+
+# ============================================================
+# MongoDB
+# ============================================================
+mongodb-driver-sync   = { module = "org.mongodb:mongodb-driver-sync",   version.ref = "mongodb" }
+mongodb-driver-legacy = { module = "org.mongodb:mongodb-driver-legacy",  version.ref = "mongodb" }
+mongojack             = { module = "org.mongojack:mongojack",            version.ref = "mongojack" }
+
+# ============================================================
+# OkHttp (okhttp-jvm is NOT in the BOM as of 5.x; explicit version needed)
+# ============================================================
+okhttp-jvm         = { module = "com.squareup.okhttp3:okhttp-jvm",     version.ref = "okhttp" }
+okhttp-tls         = { module = "com.squareup.okhttp3:okhttp-tls" }      # version from bom-okhttp
+okhttp-mockwebserver3 = { module = "com.squareup.okhttp3:mockwebserver3" } # version from bom-okhttp
+
+# ============================================================
+# Jackson (versions from bom-jackson)
+# ============================================================
+jackson-core                     = { module = "com.fasterxml.jackson.core:jackson-core" }
+jackson-databind                 = { module = "com.fasterxml.jackson.core:jackson-databind" }
+jackson-annotations              = { module = "com.fasterxml.jackson.core:jackson-annotations" }
+jackson-jakarta-rs-base          = { module = "com.fasterxml.jackson.jakarta.rs:jackson-jakarta-rs-base" }
+jackson-jakarta-rs-json-provider = { module = "com.fasterxml.jackson.jakarta.rs:jackson-jakarta-rs-json-provider" }
+jackson-datatype-guava           = { module = "com.fasterxml.jackson.datatype:jackson-datatype-guava" }
+jackson-datatype-jdk8            = { module = "com.fasterxml.jackson.datatype:jackson-datatype-jdk8" }
+jackson-datatype-jsr310          = { module = "com.fasterxml.jackson.datatype:jackson-datatype-jsr310" }
+jackson-datatype-joda            = { module = "com.fasterxml.jackson.datatype:jackson-datatype-joda" }
+jackson-module-json-schema-jakarta = { module = "com.fasterxml.jackson.module:jackson-module-jsonSchema-jakarta" }
+jackson-dataformat-yaml          = { module = "com.fasterxml.jackson.dataformat:jackson-dataformat-yaml" }
+jackson-dataformat-xml           = { module = "com.fasterxml.jackson.dataformat:jackson-dataformat-xml" }
+jackson-dataformat-csv           = { module = "com.fasterxml.jackson.dataformat:jackson-dataformat-csv" }
+
+# ============================================================
+# Apache POI (explicit version; not BOM-managed)
+# ============================================================
+poi-ooxml = { module = "org.apache.poi:poi-ooxml", version.ref = "poi" }
+
+# ============================================================
+# Dropwizard Metrics (versions from bom-metrics)
+# ============================================================
+metrics-annotation = { module = "io.dropwizard.metrics:metrics-annotation" }
+metrics-core       = { module = "io.dropwizard.metrics:metrics-core" }
+metrics-log4j2     = { module = "io.dropwizard.metrics:metrics-log4j2" }
+metrics-jvm        = { module = "io.dropwizard.metrics:metrics-jvm" }
+metrics-jmx        = { module = "io.dropwizard.metrics:metrics-jmx" }
+metrics-json       = { module = "io.dropwizard.metrics:metrics-json" }
+
+# ============================================================
+# Prometheus (versions from bom-prometheus)
+# ============================================================
+prometheus-dropwizard = { module = "io.prometheus:simpleclient_dropwizard" }
+prometheus-hotspot    = { module = "io.prometheus:simpleclient_hotspot" }
+prometheus-httpserver = { module = "io.prometheus:simpleclient_httpserver" }
+
+# ============================================================
+# Cryptomator SIV
+# ============================================================
+siv-mode = { module = "org.cryptomator:siv-mode", version.ref = "sivMode" }
+
+# ============================================================
+# Apache Commons
+# ============================================================
+commons-email     = { module = "org.apache.commons:commons-email",     version.ref = "commonsEmail" }
+commons-validator = { module = "commons-validator:commons-validator",  version.ref = "commonsValidator" }
+commons-lang3     = { module = "org.apache.commons:commons-lang3",     version.ref = "commonsLang3" }
+commons-io        = { module = "commons-io:commons-io",                version.ref = "commonsIo" }
+commons-codec     = { module = "commons-codec:commons-codec",          version.ref = "commonsCodec" }
+commons-net       = { module = "commons-net:commons-net",              version.ref = "commonsNet" }
+commons-csv       = { module = "org.apache.commons:commons-csv",       version.ref = "commonsCsv" }
+
+# ============================================================
+# Jersey (versions from bom-jersey)
+# ============================================================
+jersey-hk2                    = { module = "org.glassfish.jersey.inject:jersey-hk2" }
+jersey-bean-validation        = { module = "org.glassfish.jersey.ext:jersey-bean-validation" }
+jersey-media-multipart        = { module = "org.glassfish.jersey.media:jersey-media-multipart" }
+jersey-container-grizzly2-http = { module = "org.glassfish.jersey.containers:jersey-container-grizzly2-http" }
+jersey-test-framework-core    = { module = "org.glassfish.jersey.test-framework:jersey-test-framework-core" }
+jersey-test-framework-provider-grizzly2  = { module = "org.glassfish.jersey.test-framework.providers:jersey-test-framework-provider-grizzly2" }
+jersey-test-framework-provider-inmemory  = { module = "org.glassfish.jersey.test-framework.providers:jersey-test-framework-provider-inmemory" }
+
+# ============================================================
+# Grizzly / HK2
+# ============================================================
+grizzly-websockets = { module = "org.glassfish.grizzly:grizzly-websockets", version.ref = "grizzlyWebsockets" }
+hk2-guice-bridge   = { module = "org.glassfish.hk2:guice-bridge" }   # version from bom-hk2
+hk2-api            = { module = "org.glassfish.hk2:hk2-api" }        # version from bom-hk2
+hk2-locator        = { module = "org.glassfish.hk2:hk2-locator" }    # version from bom-hk2
+
+# ============================================================
+# Hibernate Validator
+# ============================================================
+hibernate-validator = { module = "org.hibernate.validator:hibernate-validator", version.ref = "hibernateValidator" }
+
+# ============================================================
+# Reflections / Classgraph
+# ============================================================
+reflections = { module = "org.reflections:reflections", version.ref = "reflections" }
+classgraph  = { module = "io.github.classgraph:classgraph", version.ref = "classgraph" }
+
+# ============================================================
+# CSV / Data formats (opencsv)
+# ============================================================
+opencsv = { module = "net.sf.opencsv:opencsv", version.ref = "opencsv" }
+
+# ============================================================
+# Date / Time
+# ============================================================
+natty         = { module = "com.joestelmach:natty",    version.ref = "natty" }
+joda-time     = { module = "joda-time:joda-time",      version.ref = "jodaTime" }
+threeten-extra = { module = "org.threeten:threeten-extra", version.ref = "threetenExtra" }
+
+# ============================================================
+# Misc utilities
+# ============================================================
+jsoup         = { module = "org.jsoup:jsoup",                      version.ref = "jsoup" }
+jmte          = { module = "com.floreysoft:jmte",                  version.ref = "jmte" }
+disruptor     = { module = "com.lmax:disruptor",                   version.ref = "disruptor" }
+uuid-repack   = { module = "org.graylog2.repackaged:uuid",         version.ref = "uuidRepack" }
+ulid          = { module = "de.huxhorn.sulky:de.huxhorn.sulky.ulid", version.ref = "ulid" }
+jool          = { module = "org.jooq:jool",                        version.ref = "jool" }
+freemarker    = { module = "org.freemarker:freemarker",             version.ref = "freemarker" }
+asciitable    = { module = "de.vandermeer:asciitable",             version.ref = "asciitable" }
+streamex      = { module = "one.util:streamex",                    version.ref = "streamex" }
+stateless4j   = { module = "com.github.stateless4j:stateless4j",   version.ref = "stateless4j" }
+json-path-lib = { module = "com.jayway.jsonpath:json-path",        version.ref = "jsonPathLib" }
+zstd-jni      = { module = "com.github.luben:zstd-jni",           version.ref = "zstd" }
+
+# ============================================================
+# Version parsing
+# ============================================================
+java-semver = { module = "com.github.zafarkhaja:java-semver", version.ref = "javaSemver" }
+semver4j    = { module = "org.graylog.repackaged:semver4j",   version.ref = "semver4j" }
+
+# ============================================================
+# Graylog / custom artifacts
+# ============================================================
+grok              = { module = "org.graylog2.repackaged:grok",       version.ref = "grok" }
+gelfclient        = { module = "org.graylog2:gelfclient",            version.ref = "gelfclient" }
+os-platform-finder = { module = "org.graylog.repackaged:os-platform-finder", version.ref = "osPlatformFinder" }
+kafka09-shaded    = { module = "org.graylog.shaded:kafka09_2.11",    version.ref = "kafka09" }
+syslog4j          = { module = "org.graylog2:syslog4j",              version.ref = "syslog4j" }
+cef-parser        = { module = "org.graylog.cef:cef-parser",         version.ref = "cefParser" }
+
+# ============================================================
+# Swagger
+# ============================================================
+swagger-jaxrs2-jakarta = { module = "io.swagger.core.v3:swagger-jaxrs2-jakarta", version.ref = "swagger" }
+swagger-parser         = { module = "io.swagger.parser.v3:swagger-parser",       version.ref = "swaggerParser" }
+
+# ============================================================
+# JSON Schema generator
+# ============================================================
+jsonschema-generator                  = { module = "com.github.victools:jsonschema-generator",                  version.ref = "jsonSchemaGenerator" }
+jsonschema-module-jackson             = { module = "com.github.victools:jsonschema-module-jackson",             version.ref = "jsonSchemaGenerator" }
+jsonschema-module-jakarta-validation  = { module = "com.github.victools:jsonschema-module-jakarta-validation",  version.ref = "jsonSchemaGenerator" }
+
+# ============================================================
+# Logging
+# ============================================================
+log4j-api          = { module = "org.apache.logging.log4j:log4j-api" }         # version from bom-log4j
+log4j-core         = { module = "org.apache.logging.log4j:log4j-core" }        # version from bom-log4j
+log4j-slf4j2-impl  = { module = "org.apache.logging.log4j:log4j-slf4j2-impl" } # version from bom-log4j
+log4j-jul          = { module = "org.apache.logging.log4j:log4j-jul" }         # version from bom-log4j
+slf4j-api          = { module = "org.slf4j:slf4j-api",          version.ref = "slf4j" }
+slf4j-jcl-over     = { module = "org.slf4j:jcl-over-slf4j",     version.ref = "slf4j" }
+slf4j-log4j-over   = { module = "org.slf4j:log4j-over-slf4j",   version.ref = "slf4j" }
+
+# ============================================================
+# Protobuf / gRPC (versions from bom-protobuf / bom-grpc)
+# ============================================================
+protobuf-java      = { module = "com.google.protobuf:protobuf-java" }
+protobuf-java-util = { module = "com.google.protobuf:protobuf-java-util" }
+grpc-netty         = { module = "io.grpc:grpc-netty" }
+grpc-protobuf      = { module = "io.grpc:grpc-protobuf" }
+grpc-stub          = { module = "io.grpc:grpc-stub" }
+grpc-alts          = { module = "io.grpc:grpc-alts" }
+grpc-services      = { module = "io.grpc:grpc-services" }
+
+# ============================================================
+# MCP (versions from bom-mcp)
+# ============================================================
+mcp-core          = { module = "io.modelcontextprotocol.sdk:mcp-core" }
+mcp-json-jackson2 = { module = "io.modelcontextprotocol.sdk:mcp-json-jackson2" }
+
+# ============================================================
+# Netty (versions from bom-netty unless noted)
+# ============================================================
+netty-common                = { module = "io.netty:netty-common" }
+netty-buffer                = { module = "io.netty:netty-buffer" }
+netty-handler               = { module = "io.netty:netty-handler" }
+netty-codec                 = { module = "io.netty:netty-codec" }
+netty-codec-dns             = { module = "io.netty:netty-codec-dns" }
+netty-codec-http            = { module = "io.netty:netty-codec-http" }
+netty-resolver-dns          = { module = "io.netty:netty-resolver-dns" }
+netty-transport-classes-epoll  = { module = "io.netty:netty-transport-classes-epoll" }
+netty-transport-classes-kqueue = { module = "io.netty:netty-transport-classes-kqueue" }
+
+# ============================================================
+# HdrHistogram / OSHI
+# ============================================================
+hdr-histogram = { module = "org.hdrhistogram:HdrHistogram", version.ref = "hdrHistogram" }
+oshi-core     = { module = "com.github.oshi:oshi-core",     version.ref = "oshiCore" }
+
+# ============================================================
+# Messaging
+# ============================================================
+amqp-client   = { module = "com.rabbitmq:amqp-client",       version.ref = "amqpClient" }
+kafka-clients = { module = "org.apache.kafka:kafka-clients",  version.ref = "kafka" }
+aws-msk-iam-auth = { module = "software.amazon.msk:aws-msk-iam-auth", version.ref = "awsMskIamAuth" }
+
+# ============================================================
+# Lucene (explicit version; not BOM-managed)
+# ============================================================
+lucene-queryparser    = { module = "org.apache.lucene:lucene-queryparser",    version.ref = "lucene" }
+lucene-analysis-common = { module = "org.apache.lucene:lucene-analysis-common", version.ref = "lucene" }
+
+# ============================================================
+# AWS SDK v2 (versions from bom-awssdk)
+# ============================================================
+awssdk-s3               = { module = "software.amazon.awssdk:s3" }
+awssdk-sqs              = { module = "software.amazon.awssdk:sqs" }
+awssdk-apache-client    = { module = "software.amazon.awssdk:apache-client" }
+awssdk-netty-nio-client = { module = "software.amazon.awssdk:netty-nio-client" }
+awssdk-cloudwatchlogs   = { module = "software.amazon.awssdk:cloudwatchlogs" }
+awssdk-iam              = { module = "software.amazon.awssdk:iam" }
+awssdk-sts              = { module = "software.amazon.awssdk:sts" }
+
+# ============================================================
+# AWS Kinesis (separate group; not in awssdk BOM)
+# ============================================================
+aws-kinesis-client = { module = "software.amazon.kinesis:amazon-kinesis-client", version.ref = "awsKinesisClient" }
+
+# ============================================================
+# AWS SDK v1 (versions from bom-awssdk1)
+# ============================================================
+awssdk1-s3  = { module = "com.amazonaws:aws-java-sdk-s3" }
+awssdk1-sqs = { module = "com.amazonaws:aws-java-sdk-sqs" }
+awssdk1-ec2 = { module = "com.amazonaws:aws-java-sdk-ec2" }
+awssdk1-sts = { module = "com.amazonaws:aws-java-sdk-sts" }
+
+# ============================================================
+# GCS / Azure (explicit versions; not BOM-managed)
+# ============================================================
+google-cloud-storage = { module = "com.google.cloud:google-cloud-storage",  version.ref = "googleCloudStorage" }
+azure-storage-blob   = { module = "com.azure:azure-storage-blob",           version.ref = "azureBlobStorage" }
+
+# ============================================================
+# Retrofit
+# ============================================================
+retrofit                  = { module = "com.squareup.retrofit2:retrofit",           version.ref = "retrofit" }
+retrofit-converter-jackson = { module = "com.squareup.retrofit2:converter-jackson", version.ref = "retrofit" }
+
+# ============================================================
+# LDAP
+# ============================================================
+unboundid-ldapsdk = { module = "com.unboundid:unboundid-ldapsdk", version.ref = "unboundidLdap" }
+
+# ============================================================
+# Geo IP
+# ============================================================
+geoip2 = { module = "com.maxmind.geoip2:geoip2", version.ref = "geoip2" }
+
+# ============================================================
+# Cron / Rate limiting
+# ============================================================
+cron-utils          = { module = "com.cronutils:cron-utils",         version.ref = "cronUtils" }
+rate-limited-logger = { module = "com.swrve:rate-limited-logger",    version.ref = "rateLimitedLogger" }
+
+# ============================================================
+# Test dependencies
+# ============================================================
+# JUnit / Mockito (versions from bom-junit / bom-mockito)
+junit-jupiter              = { module = "org.junit.jupiter:junit-jupiter" }
+junit-platform-reporting   = { module = "org.junit.platform:junit-platform-reporting" }
+mockito-core               = { module = "org.mockito:mockito-core" }
+mockito-junit-jupiter      = { module = "org.mockito:mockito-junit-jupiter" }
+
+# AssertJ (versions managed in parent dependencyManagement as test scope)
+assertj-core       = { module = "org.assertj:assertj-core",       version.ref = "assertjCore" }
+assertj-joda-time  = { module = "org.assertj:assertj-joda-time",  version.ref = "assertjJodaTime" }
+
+# Awaitility
+awaitility = { module = "org.awaitility:awaitility", version = "4.3.0" }
+
+# Testcontainers (versions from bom-testcontainers)
+testcontainers                   = { module = "org.testcontainers:testcontainers" }
+testcontainers-elasticsearch     = { module = "org.testcontainers:testcontainers-elasticsearch" }
+testcontainers-rabbitmq          = { module = "org.testcontainers:testcontainers-rabbitmq" }
+testcontainers-junit-jupiter     = { module = "org.testcontainers:testcontainers-junit-jupiter" }
+testcontainers-mongodb           = { module = "org.testcontainers:testcontainers-mongodb" }
+
+# OpenSearch Testcontainers (explicit version; not in testcontainers BOM)
+opensearch-testcontainers = { module = "org.opensearch:opensearch-testcontainers", version.ref = "opensearchTestcontainers" }
+
+# REST-Assured (explicit version; not BOM-managed)
+rest-assured          = { module = "io.rest-assured:rest-assured",  version.ref = "restAssured" }
+rest-assured-json-path = { module = "io.rest-assured:json-path",    version.ref = "restAssured" }
+
+# Guice JUnit 5 extension
+guice-extension = { module = "name.falgout.jeffrey.testing.junit5:guice-extension", version.ref = "guiceExtension" }
+
+# Equalsverifier / JSONassert
+equalsverifier  = { module = "nl.jqno.equalsverifier:equalsverifier", version.ref = "equalsverifier" }
+jsonassert-lib  = { module = "org.skyscreamer:jsonassert",            version.ref = "jsonassert" }
+
+# pkts (for packet parsing in tests)
+pkts-core = { module = "io.pkts:pkts-core", version.ref = "pktsCore" }
+
+# Apache Directory API
+apache-directory-api           = { module = "org.apache.directory.api:api-all", version.ref = "apacheDirectoryApi" }
+apacheds-test-framework        = { module = "org.apache.directory.server:apacheds-test-framework", version.ref = "apacheDs" }
+apacheds-ldap-client-test      = { module = "org.apache.directory.server:ldap-client-test",        version.ref = "apacheDs" }
