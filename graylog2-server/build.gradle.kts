@@ -533,3 +533,20 @@ dependencies {
     testAnnotationProcessor("org.graylog:jadconfig:1.1.0")
     testAnnotationProcessor("com.google.errorprone:error_prone_core:2.50.0")
 }
+
+// =========================================================
+// Integration test task — opt-in, NOT wired into `check`.
+// Reuses the already-compiled test source set output so no
+// second compilation of src/test/java is needed.
+// Run with: ./gradlew :graylog2-server:integrationTest --tests "<fqn>"
+// =========================================================
+val integrationTest by tasks.registering(Test::class) {
+    description = "Runs integration tests (*IT / *IntegrationTest)."
+    group = "verification"
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    useJUnitPlatform()
+    include("**/*IntegrationTest.class", "**/*IT.class")
+    jvmArgs("-Djava.awt.headless=true")
+    shouldRunAfter(tasks.named("test"))
+}
