@@ -26,6 +26,7 @@ mcpSdk           = "1.1.3"
 junit            = "6.1.0"
 mockito          = "5.23.0"
 testcontainers   = "2.0.5"
+awaitility       = "4.3.0"
 
 # --- Individual library versions ---
 slf4j                    = "2.0.18"
@@ -474,7 +475,7 @@ assertj-core       = { module = "org.assertj:assertj-core",       version.ref = 
 assertj-joda-time  = { module = "org.assertj:assertj-joda-time",  version.ref = "assertjJodaTime" }
 
 # Awaitility
-awaitility = { module = "org.awaitility:awaitility", version = "4.3.0" }
+awaitility = { module = "org.awaitility:awaitility", version.ref = "awaitility" }
 
 # Testcontainers (versions from bom-testcontainers)
 testcontainers                   = { module = "org.testcontainers:testcontainers" }
