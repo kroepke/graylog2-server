@@ -22,6 +22,9 @@ tasks.generateGrammarSource {
 // Dedicated source set for OpAMP protos (mirrors Maven's separate <execution>).
 // Setting the proto srcDir to src/main/proto/opamp/proto makes that directory the
 // import root, so `import "anyvalue.proto"` in opamp.proto resolves correctly.
+// NOTE: this source set exists ONLY to drive a separate protoc invocation with its
+// own import root. Its generated Java is routed into the MAIN source set below so the
+// `opamp.proto.*` classes are part of the graylog2-server main module (as in Maven).
 val opamp = sourceSets.create("opamp") {
     (extensions.getByName("proto") as SourceDirectorySet).setSrcDirs(
         listOf(file("src/main/proto/opamp/proto"))
@@ -32,6 +35,24 @@ val opamp = sourceSets.create("opamp") {
 // the main protoc invocation (they are compiled by the dedicated opamp task above).
 sourceSets.main {
     (extensions.getByName("proto") as SourceDirectorySet).exclude("opamp/**")
+    // Route the OpAMP-generated Java/gRPC sources into MAIN compilation so that
+    // package `opamp.proto.*` resolves from main code. The protobuf plugin writes
+    // these under build/generated/source/proto/opamp/{java,grpc}.
+    java.srcDir(layout.buildDirectory.dir("generated/source/proto/opamp/java"))
+    java.srcDir(layout.buildDirectory.dir("generated/source/proto/opamp/grpc"))
+}
+
+// Prevent the opamp source set from ALSO compiling its generated Java (it would
+// otherwise produce competing class files via compileOpampJava). We keep only the
+// proto-generation task (generateOpampProto) from that source set; the Java is
+// compiled exclusively by compileJava (main). This avoids duplicate-class output.
+tasks.named("compileOpampJava") { enabled = false }
+
+// Generated OpAMP sources must exist before main compilation runs. Adding the
+// generated dirs to main.java.srcDirs does not, by itself, create the task ordering,
+// so wire compileJava explicitly to depend on the OpAMP proto generation task.
+tasks.named("compileJava") {
+    dependsOn("generateOpampProto")
 }
 
 protobuf {
