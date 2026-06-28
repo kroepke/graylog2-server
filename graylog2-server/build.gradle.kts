@@ -550,3 +550,17 @@ val integrationTest by tasks.registering(Test::class) {
     jvmArgs("-Djava.awt.headless=true")
     shouldRunAfter(tasks.named("test"))
 }
+
+// =========================================================
+// Test classes JAR — exposes compiled test classes to other modules
+// (storage plugins, full-backend-tests, etc.) without moving files.
+// Mirrors Maven's test-jar: consumers re-declare any transitive test deps.
+// =========================================================
+val testJar by tasks.registering(Jar::class) {
+    archiveClassifier.set("tests")
+    from(sourceSets.test.get().output)
+}
+val testArtifacts by configurations.consumable("testArtifacts")
+artifacts {
+    add("testArtifacts", testJar)
+}
