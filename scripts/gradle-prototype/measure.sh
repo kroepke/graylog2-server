@@ -69,6 +69,7 @@ cleanup() {
     echo ">>> Restoring $TOUCHED_FILE (cleanup trap)"
     git -C "$REPO_ROOT" checkout "$TOUCHED_FILE"
   fi
+  rm -f "${RESULTS_TMP:-}"
 }
 trap cleanup EXIT
 
@@ -234,11 +235,6 @@ measure "Gradle compile from cache (post-clean)" \
   "$REPO_ROOT/gradlew" :graylog2-server:compileJava --build-cache
 GRADLE_CACHE_MS=$ELAPSED
 
-# Capture from-cache count from the output of a clean+compile run
-CACHE_COUNT=$("$REPO_ROOT/gradlew" clean -q 2>&1; \
-  "$REPO_ROOT/gradlew" :graylog2-server:compileJava --build-cache 2>&1 \
-  | grep -c 'FROM-CACHE' || true)
-
 table_row "Cross-run cache: clean + compileJava" "Gradle" "$GRADLE_CACHE_MS" \
   "Tasks restored FROM-CACHE (no recompile needed)"
 table_row "Cross-run cache" "Maven" "N/A" \
@@ -273,13 +269,8 @@ table_row "Frontend skip: Java-only edit → compileJava" "Gradle" "$GRADLE_FRON
 git -C "$REPO_ROOT" checkout "$TOUCHED_FILE"
 echo ">>> $TOUCHED_FILE restored"
 
-if [ "$SKIP_MAVEN" = "false" ]; then
-  table_row "Frontend skip: Java-only edit → compile phase" "Maven" "N/A (NOT MEASURED)" \
-    "Maven exec-maven-plugin binds frontend to compile; yarn always runs"
-else
-  table_row "Frontend skip: Java-only edit → compile phase" "Maven" "N/A (NOT MEASURED)" \
-    "Maven exec-maven-plugin binds frontend to compile; yarn always runs"
-fi
+table_row "Frontend skip: Java-only edit → compile phase" "Maven" "N/A (NOT MEASURED)" \
+  "Maven exec-maven-plugin binds frontend to compile; yarn always runs"
 
 # ===========================================================================
 # Print results table
