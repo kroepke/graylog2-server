@@ -1,0 +1,19 @@
+[versions]
+protoc = "4.35.1"
+grpcJava = "1.82.0"
+antlr = "4.13.2"
+errorprone = "2.50.0"
+autoService = "1.1.1"
+autoValue = "1.11.1"
+jadconfig = "1.1.0"
+
+[libraries]
+# Annotation processors
+errorprone-core = { module = "com.google.errorprone:error_prone_core", version.ref = "errorprone" }
+auto-service = { module = "com.google.auto.service:auto-service", version.ref = "autoService" }
+auto-value = { module = "com.google.auto.value:auto-value", version.ref = "autoValue" }
+jadconfig = { module = "org.graylog:jadconfig", version.ref = "jadconfig" }
+# Codegen artifacts
+protoc = { module = "com.google.protobuf:protoc", version.ref = "protoc" }
+grpc-protoc-gen = { module = "io.grpc:protoc-gen-grpc-java", version.ref = "grpcJava" }
+antlr = { module = "org.antlr:antlr4", version.ref = "antlr" }
