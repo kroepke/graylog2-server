@@ -1,6 +1,22 @@
 plugins {
     id("graylog.java-conventions")
     id("com.google.protobuf") version "0.9.4"
+    antlr
+}
+
+// ANTLR4: grammar is under src/main/antlr4 (Gradle plugin default is src/main/antlr).
+sourceSets.main {
+    antlr {
+        setSrcDirs(listOf("src/main/antlr4"))
+    }
+}
+
+tasks.generateGrammarSource {
+    // Pass -package so generated files have the correct package declaration to match Maven output.
+    // Gradle already sets -o to the per-grammar subdirectory based on the relative path from
+    // src/main/antlr4, so ANTLR4 places files in the correct location without creating an
+    // additional package subdirectory (ANTLR4 ignores -package for directory layout).
+    arguments = arguments + listOf("-package", "org.graylog.plugins.pipelineprocessor.parser")
 }
 
 // Dedicated source set for OpAMP protos (mirrors Maven's separate <execution>).
@@ -372,8 +388,9 @@ dependencies {
     implementation(libs.geoip2)
 
     // =========================================================
-    // ANTLR runtime
+    // ANTLR4 tool (codegen) + runtime
     // =========================================================
+    antlr(libs.antlr)
     implementation(libs.antlr4.runtime)
 
     // =========================================================
