@@ -105,10 +105,10 @@ dependencies {
 
     // --- GraalVM Polyglot API (test scope; graalvm.version = 25.0.3 from root POM) ---
     // Used by CustomizationConfigIT (org.graalvm.polyglot.Context / HostAccess).
-    testImplementation("org.graalvm.polyglot:polyglot:25.0.3")
+    testImplementation(libs.graalvm.polyglot)
     // org.graalvm.js:js declared as type=pom in Maven POM — adds JS engine transitives.
     // Gradle resolves it as a POM-only dep pulling in its transitive deps.
-    testImplementation("org.graalvm.js:js:25.0.3")
+    testImplementation(libs.graalvm.js)
 }
 
 // Add server+storage full runtime classpaths onto the test compile and runtime classpaths.

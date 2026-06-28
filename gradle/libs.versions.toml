@@ -92,6 +92,7 @@ geoip2                   = "5.1.0"
 cefParser                = "0.0.1.10"
 jool                     = "0.9.15"
 freemarker               = "2.3.34"
+graalvm                  = "25.0.3"
 asciitable               = "0.3.2"
 awsKinesisClient         = "3.4.3"
 assertjCore              = "3.27.7"
@@ -324,6 +325,12 @@ streamex      = { module = "one.util:streamex",                    version.ref =
 stateless4j   = { module = "com.github.stateless4j:stateless4j",   version.ref = "stateless4j" }
 json-path-lib = { module = "com.jayway.jsonpath:json-path",        version.ref = "jsonPathLib" }
 zstd-jni      = { module = "com.github.luben:zstd-jni",           version.ref = "zstd" }
+
+# ============================================================
+# GraalVM
+# ============================================================
+graalvm-polyglot = { module = "org.graalvm.polyglot:polyglot", version.ref = "graalvm" }
+graalvm-js       = { module = "org.graalvm.js:js",             version.ref = "graalvm" }
 
 # ============================================================
 # Version parsing
