@@ -2,6 +2,38 @@ plugins {
     id("graylog.java-conventions")
     id("com.google.protobuf") version "0.9.4"
     antlr
+    `jvm-test-suite`
+}
+
+// Mockito as a javaagent (Java 21 inline-mock requirement), resolved to a single jar file.
+// isTransitive = false so only the agent jar itself is in the configuration — no deps pulled in.
+// Version is pinned explicitly using the catalog version (same as bom-mockito) because BOM
+// platforms don't apply version constraints when transitive resolution is disabled.
+val mockitoAgent: Configuration by configurations.creating { isTransitive = false }
+
+dependencies {
+    // Pin same mockito-core version as bom-mockito (5.23.0 from graylog-parent mockito.version).
+    // Using a literal version because the `libs` accessor is declared after this block in the script.
+    mockitoAgent("org.mockito:mockito-core:5.23.0")
+}
+
+testing {
+    suites {
+        val test by getting(JvmTestSuite::class) {
+            useJUnitJupiter()
+            targets.all {
+                testTask.configure {
+                    include("**/*Spec.class", "**/*Test.class")
+                    exclude("**/*IntegrationTest.class", "**/*IT.class")
+                    jvmArgs(
+                        "-javaagent:${mockitoAgent.singleFile}",
+                        "-Dio.netty.leakDetectionLevel=paranoid",
+                        "-Djava.awt.headless=true",
+                    )
+                }
+            }
+        }
+    }
 }
 
 // ANTLR4: grammar is under src/main/antlr4 (Gradle plugin default is src/main/antlr).
@@ -487,4 +519,17 @@ dependencies {
     testImplementation(libs.jersey.test.framework.core)
     testImplementation(libs.jersey.test.framework.provider.grizzly2)
     testImplementation(libs.jersey.test.framework.provider.inmemory)
+
+    // =========================================================
+    // Test annotation processors (mirrors main convention plugin setup;
+    // test sources use @AutoValue, @AutoService, and JadConfig annotations)
+    // Versions match the convention plugin exactly (auto-service 1.1.1,
+    // auto-value 1.11.1, jadconfig 1.1.0 — all from graylog-parent / POMs).
+    // =========================================================
+    testCompileOnly("com.google.auto.service:auto-service:1.1.1")
+    testAnnotationProcessor("com.google.auto.service:auto-service:1.1.1")
+    testCompileOnly("com.google.auto.value:auto-value-annotations:1.11.1")
+    testAnnotationProcessor("com.google.auto.value:auto-value:1.11.1")
+    testAnnotationProcessor("org.graylog:jadconfig:1.1.0")
+    testAnnotationProcessor("com.google.errorprone:error_prone_core:2.50.0")
 }
