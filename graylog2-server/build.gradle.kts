@@ -564,3 +564,28 @@ val testArtifacts by configurations.consumable("testArtifacts")
 artifacts {
     add("testArtifacts", testJar)
 }
+
+// =========================================================
+// Bundle frontend web assets into the server jar.
+// Mirrors Maven's copy-web-ui-assets execution:
+//   copies graylog2-web-interface/target/web/build/** → web-interface/assets/
+//
+// WHY jar, NOT processResources:
+//   generateApiDefinition depends on processResources (needs the full classpath).
+//   generateApiDefs depends on generateApiDefinition.
+//   Wiring processResources → yarnBuild → generateApiDefs → generateApiDefinition → processResources
+//   creates a circular dependency.  Wiring into the jar task avoids the cycle:
+//     jar → yarnBuild → generateApiDefs → generateApiDefinition → processResources  (DAG, no cycle).
+//
+// COUPLING NOTE: compileJava has NO dependency on the frontend build.
+//   Backend-only inner loops stay fast:
+//     ./gradlew :graylog2-server:compileJava  →  no yarn/webpack executed.
+//   Only a full jar build pulls the frontend:
+//     ./gradlew :graylog2-server:jar          →  triggers yarnBuild.
+// =========================================================
+tasks.jar {
+    dependsOn(":graylog2-web-interface:yarnBuild")
+    from(project(":graylog2-web-interface").file("target/web/build")) {
+        into("web-interface/assets")
+    }
+}
