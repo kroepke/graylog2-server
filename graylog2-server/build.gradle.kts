@@ -65,6 +65,21 @@ protobuf {
     }
 }
 
+// =========================================================
+// Swagger/OpenAPI generation task
+// Mirrors the Maven exec-maven-plugin execution generate-swagger-api-definition.
+// =========================================================
+val generateApiDefinition by tasks.registering(JavaExec::class) {
+    dependsOn(tasks.compileJava, tasks.processResources)
+    mainClass.set("org.graylog.api.GenerateApiDefinition")
+    classpath = sourceSets.main.get().runtimeClasspath
+    val outDir = layout.buildDirectory.dir("swagger")
+    args(outDir.get().asFile.absolutePath, "org.graylog", "org.graylog2")
+    // Declared I/O so Gradle can skip this task when nothing has changed.
+    inputs.files(sourceSets.main.get().output)
+    outputs.dir(outDir)
+}
+
 val libs = the<org.gradle.accessors.dm.LibrariesForLibs>()
 
 dependencies {
@@ -423,6 +438,7 @@ dependencies {
     // =========================================================
     // Test infrastructure
     // =========================================================
+
     // JUnit 5 (from bom-junit)
     testImplementation(libs.junit.jupiter)
     testImplementation(libs.junit.platform.reporting)
