@@ -98,6 +98,10 @@ assertjCore              = "3.27.7"
 assertjJodaTime          = "2.2.0"
 restAssured              = "6.0.0"
 opensearchTestcontainers = "4.1.0"
+elasticsearch7Shaded     = "7.9.1-0"
+opensearch2Shaded        = "2.19.3-1"
+opensearchJava           = "3.2.0"
+apacheHttpClient5        = "5.5.1"
 guiceExtension           = "1.2.1"
 jbcrypt                  = "0.4"
 unboundidLdap            = "7.0.5"
@@ -486,6 +490,20 @@ testcontainers-mongodb           = { module = "org.testcontainers:testcontainers
 
 # OpenSearch Testcontainers (explicit version; not in testcontainers BOM)
 opensearch-testcontainers = { module = "org.opensearch:opensearch-testcontainers", version.ref = "opensearchTestcontainers" }
+
+# ============================================================
+# Storage plugin client libraries (added for Task 11)
+# ============================================================
+# Graylog-shaded Elasticsearch 7 client (published to Maven Central from graylog-shaded project)
+elasticsearch7-shaded         = { module = "org.graylog.shaded:elasticsearch7",                      version.ref = "elasticsearch7Shaded" }
+elasticsearch7-sniffer-shaded = { module = "org.graylog.shaded:elasticsearch-rest-client-sniffer7",  version.ref = "elasticsearch7Shaded" }
+# Graylog-shaded OpenSearch 2 REST client (published to Maven Central)
+opensearch2-hlrc-shaded       = { module = "org.graylog.shaded:opensearch2-rest-high-level-client",  version.ref = "opensearch2Shaded" }
+opensearch2-sniffer-shaded    = { module = "org.graylog.shaded:opensearch2-rest-client-sniffer",     version.ref = "opensearch2Shaded" }
+# OpenSearch Java client (official client from opensearch-project)
+opensearch-java-client        = { module = "org.opensearch.client:opensearch-java",                  version.ref = "opensearchJava" }
+# Apache HttpComponents 5 (used by OS3 module; version from graylog-parent dependencyManagement)
+apache-httpclient5            = { module = "org.apache.httpcomponents.client5:httpclient5",          version.ref = "apacheHttpClient5" }
 
 # REST-Assured (explicit version; not BOM-managed)
 rest-assured          = { module = "io.rest-assured:rest-assured",  version.ref = "restAssured" }
