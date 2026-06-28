@@ -96,6 +96,7 @@ asciitable               = "0.3.2"
 awsKinesisClient         = "3.4.3"
 assertjCore              = "3.27.7"
 assertjJodaTime          = "2.2.0"
+hamcrest                 = "3.0"
 restAssured              = "6.0.0"
 opensearchTestcontainers = "4.1.0"
 elasticsearch7Shaded     = "7.9.1-0"
@@ -477,6 +478,9 @@ mockito-junit-jupiter      = { module = "org.mockito:mockito-junit-jupiter" }
 # AssertJ (versions managed in parent dependencyManagement as test scope)
 assertj-core       = { module = "org.assertj:assertj-core",       version.ref = "assertjCore" }
 assertj-joda-time  = { module = "org.assertj:assertj-joda-time",  version.ref = "assertjJodaTime" }
+
+# Hamcrest (version 3.0 from graylog-parent hamcrest.version)
+hamcrest = { module = "org.hamcrest:hamcrest", version.ref = "hamcrest" }
 
 # Awaitility
 awaitility = { module = "org.awaitility:awaitility", version.ref = "awaitility" }

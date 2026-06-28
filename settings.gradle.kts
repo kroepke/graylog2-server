@@ -15,3 +15,5 @@ include(":graylog-storage-elasticsearch7")
 include(":graylog-storage-opensearch2")
 include(":graylog-storage-opensearch3")
 // Project dirs match their names at repo root — no projectDir override needed.
+
+include(":full-backend-tests")
