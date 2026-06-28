@@ -6,7 +6,13 @@
 
 **Architecture:** One Gradle root project at the `graylog2-server` repo root, one subproject per existing Maven module. Shared config lives in `buildSrc` convention plugins (the parent-POM replacement); versions live in a Gradle version catalog plus `platform()` BOM imports mirroring `graylog-parent`. Codegen (protobuf+gRPC, ANTLR4, annotation processors, Swagger→TS) becomes real tasks with declared inputs/outputs. The frontend is driven by the `node-gradle` plugin with up-to-date checking. The Gradle files are added alongside the POMs — nothing in Maven is deleted or modified.
 
-**Tech Stack:** Gradle 8.14.3 (Kotlin DSL), Java 21 toolchain, `com.google.protobuf` plugin 0.9.4, `com.github.node-gradle.node` plugin 7.1.0, Gradle built-in `antlr` and `jvm-test-suite` plugins, Node 24.13.0 / Yarn 1.22.22, Webpack 5, JUnit, Mockito.
+**Tech Stack:** Gradle 9.6.1 (Kotlin DSL), Java 21 toolchain, `com.google.protobuf` plugin 0.9.4, `com.github.node-gradle.node` plugin 7.1.0, Gradle built-in `antlr` and `jvm-test-suite` plugins, Node 24.13.0 / Yarn 1.22.22, Webpack 5, JUnit, Mockito.
+
+> **Gradle 9 plugin-compatibility note:** Gradle 9.6.1 requires JDK 17+ to run the daemon (Java 21 satisfies this). Two third-party plugins carry compatibility risk on Gradle 9 and must be verified, each with a boring fallback that removes the third-party dependency entirely:
+> - **`com.google.protobuf` (Task 4)** — its published compatibility states "Gradle 7.6 up to the latest 8.x". Treat Task 4 as a canary on Gradle 9. **Fallback:** if it misbehaves, drop the plugin and invoke `protoc` from a plain `JavaExec`/`Exec` task with declared inputs/outputs (download `protoc` + `protoc-gen-grpc-java` via dependencies, resolve their files, exec them). Fully controlled, zero plugin-compat surface.
+> - **`com.github.node-gradle.node` (Task 13)** — verify on Gradle 9. **Fallback:** run `yarn` directly via `Exec` tasks (install Node/Yarn out of band or via a small download task), keeping the same declared inputs/outputs for up-to-date checking.
+>
+> Do not assume either plugin works on 9 — confirm it in the task's verify step before proceeding.
 
 ## Global Constraints
 
@@ -56,11 +62,11 @@ Stand up an empty-but-valid Gradle build that knows about the `:graylog2-server`
 
 - [ ] **Step 1: Generate the wrapper**
 
-Run from `<root>` (uses a system Gradle if available; otherwise install Gradle 8.14.3 first):
+Run from `<root>` (uses a system Gradle if available; otherwise install Gradle 9.6.1 first):
 ```bash
-gradle wrapper --gradle-version 8.14.3 --distribution-type bin
+gradle wrapper --gradle-version 9.6.1 --distribution-type bin
 ```
-If no system `gradle`, download once: `sdk install gradle 8.14.3` (SDKMAN) or fetch the distribution and run its `gradle wrapper`. Expected: creates `gradlew`, `gradlew.bat`, `gradle/wrapper/gradle-wrapper.jar`, `gradle/wrapper/gradle-wrapper.properties`.
+If no system `gradle`, download once: `sdk install gradle 9.6.1` (SDKMAN) or fetch the distribution and run its `gradle wrapper`. Expected: creates `gradlew`, `gradlew.bat`, `gradle/wrapper/gradle-wrapper.jar`, `gradle/wrapper/gradle-wrapper.properties`. After generation, confirm `gradle/wrapper/gradle-wrapper.properties` pins `gradle-9.6.1-bin.zip` and run `./gradlew --version` to verify Gradle reports `9.6.1`.
 
 - [ ] **Step 2: Write `settings.gradle.kts`**
 
@@ -378,6 +384,8 @@ sourceSets {
 
 Run: `./gradlew :graylog2-server:generateProto`
 Expected: SUCCESS; generated Java appears under `graylog2-server/build/generated/source/proto/main/java` and `.../grpc`. If OpAMP imports fail, create a dedicated source set for `src/main/proto/opamp/proto` and configure a separate generate task; re-run.
+
+**Gradle 9 canary:** this is the first real test of `com.google.protobuf` on Gradle 9.6.1. If the plugin fails to apply or errors with a Gradle-version/incompatible-API message, switch to the plugin-free fallback from the Tech Stack note: declare `protoc`/`protoc-gen-grpc-java` as dependencies, resolve their files, and run them from a `JavaExec`/`Exec` task with `inputs.dir("src/main/proto")` + `outputs.dir(<generated>)`, then add the generated dir to the main source set. Do not spend long fighting plugin internals — the fallback is the boring path.
 
 - [ ] **Step 3: Commit**
 
