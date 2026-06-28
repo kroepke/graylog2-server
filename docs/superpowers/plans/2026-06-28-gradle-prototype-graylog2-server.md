@@ -538,8 +538,6 @@ plugins {
     id("com.google.protobuf") version "0.9.4"
     antlr
     `jvm-test-suite`
-    `java-test-fixtures` // NOT used for sharing here; see Task 10 note. If it pulls in
-                         // an unwanted src/testFixtures expectation, omit it.
 }
 
 // Mockito as a javaagent (Java 21 inline-mock requirement), resolved to a file path.
@@ -618,7 +616,11 @@ val integrationTest by registering(JvmTestSuite::class) {
     }
     dependencies {
         implementation(project())
-        implementation(project.dependencies.testFixtures(project()))
+        // This suite reuses src/test/java directly (set above), so it needs the same
+        // test libraries the unit `test` suite uses — re-declare them here (or via a
+        // shared list of catalog refs). Do NOT use java-test-fixtures: the chosen
+        // sharing mechanism is the testArtifacts configuration (Task 10), and that is
+        // for cross-MODULE consumption, not for this same-module suite.
     }
     targets.all {
         testTask.configure {
