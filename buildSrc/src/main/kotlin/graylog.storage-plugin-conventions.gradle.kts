@@ -47,6 +47,7 @@ dependencies {
     "testImplementation"(project(path = ":graylog2-server", configuration = "testArtifacts"))
     // BOM platforms for test dependencies (hardcoded versions matching graylog-parent,
     // consistent with graylog.java-conventions which also hardcodes processor versions).
+    // Keep these in sync with gradle/libs.versions.toml (buildSrc can't access the catalog easily).
     "testImplementation"(platform("org.junit:junit-bom:6.1.0"))
     "testImplementation"(platform("org.mockito:mockito-bom:5.23.0"))
     "testImplementation"(platform("org.testcontainers:testcontainers-bom:2.0.5"))
@@ -57,6 +58,16 @@ dependencies {
 // Add graylog2-server's full runtime classpath to compile classpaths (not runtime).
 // This makes guice, jackson, jakarta APIs, etc. available for compilation without
 // bundling them into the storage module's own artifact.
+//
+// Why afterEvaluate? Without it, the sourceSets accessor runs before the java plugin has
+// registered its source sets, causing a "cannot find symbol" failure. The afterEvaluate
+// form is intentional and is configuration-cache compatible (verified: second run reuses
+// the cache cleanly with no problems reported). Do NOT replace with
+// configurations.named("compileClasspath") { extendsFrom(serverProvided) } — extendsFrom
+// inherits dependencies and re-resolves them using compileClasspath's own attributes
+// (apiElements/compile variant), which does NOT carry implementation transitives,
+// breaking compilation. The afterEvaluate approach correctly adds the already-resolved
+// file collection and avoids re-resolution.
 afterEvaluate {
     sourceSets["main"].compileClasspath += serverProvided
     sourceSets["test"].compileClasspath += serverProvided

@@ -5,8 +5,10 @@ val libs = the<org.gradle.accessors.dm.LibrariesForLibs>()
 dependencies {
     // =========================================================
     // guava: <scope>provided</scope> in Maven → compileOnly
-    // Note: os3 POM uses provided for both guava AND graylog2-server;
-    // server dep is already declared as compileOnly in the convention plugin.
+    // Note: os3 POM uses provided for both guava AND graylog2-server.
+    // The server dep is handled by the convention plugin's serverProvided
+    // configuration (JAVA_RUNTIME resolution → full transitive classpath),
+    // not as a compileOnly dep. Guava is declared explicitly here for clarity.
     // =========================================================
     compileOnly(libs.guava)
 

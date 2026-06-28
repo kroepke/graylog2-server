@@ -5,8 +5,9 @@ val libs = the<org.gradle.accessors.dm.LibrariesForLibs>()
 dependencies {
     // =========================================================
     // guava: <scope>provided</scope> in Maven → compileOnly
-    // Not transitively available from compileOnly(server) because server uses java plugin,
-    // not java-library, so its implementation deps don't propagate to consumers.
+    // Available transitively via the convention plugin's serverProvided configuration
+    // (resolves server's JAVA_RUNTIME variant), but declared explicitly here so that
+    // Gradle's dependency insight and locking show it as a direct compileOnly dep.
     // =========================================================
     compileOnly(libs.guava)
 
