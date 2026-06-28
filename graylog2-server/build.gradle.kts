@@ -1,5 +1,31 @@
 plugins {
     id("graylog.java-conventions")
+    id("com.google.protobuf") version "0.9.4"
+}
+
+// Dedicated source set for OpAMP protos (mirrors Maven's separate <execution>).
+// Setting the proto srcDir to src/main/proto/opamp/proto makes that directory the
+// import root, so `import "anyvalue.proto"` in opamp.proto resolves correctly.
+val opamp = sourceSets.create("opamp") {
+    (extensions.getByName("proto") as SourceDirectorySet).setSrcDirs(
+        listOf(file("src/main/proto/opamp/proto"))
+    )
+}
+
+// Exclude opamp/** from the main proto source set so those files are NOT passed to
+// the main protoc invocation (they are compiled by the dedicated opamp task above).
+sourceSets.main {
+    (extensions.getByName("proto") as SourceDirectorySet).exclude("opamp/**")
+}
+
+protobuf {
+    protoc { artifact = "com.google.protobuf:protoc:4.35.1" }
+    plugins {
+        create("grpc") { artifact = "io.grpc:protoc-gen-grpc-java:1.82.0" }
+    }
+    generateProtoTasks {
+        all().forEach { it.plugins { create("grpc") } }
+    }
 }
 
 val libs = the<org.gradle.accessors.dm.LibrariesForLibs>()
