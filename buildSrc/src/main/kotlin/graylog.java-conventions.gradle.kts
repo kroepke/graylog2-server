@@ -8,7 +8,7 @@ java {
     toolchain {
         languageVersion.set(JavaLanguageVersion.of(21))
     }
-    withSourcesJar() // harmless; helps IDE/agents. Remove if it slows things.
+
 }
 
 repositories {
@@ -35,7 +35,7 @@ tasks.withType<JavaCompile>().configureEach {
     options.compilerArgs.add("-parameters")
     // Pass the module flags to the forked javac so annotation processors can reach javac internals.
     options.isFork = true
-    options.forkOptions.jvmArgs?.addAll(compilerJvmArgs)
+    options.forkOptions.jvmArgs = (options.forkOptions.jvmArgs ?: emptyList()) + compilerJvmArgs
 }
 
 // Annotation processors declared as plain-string coordinates.

@@ -69,9 +69,11 @@ Both third-party Gradle plugins function correctly on Gradle 9.6.1:
 
 ### 1. ErrorProne: intentionally inert (processor path only)
 
-The `graylog.java-conventions` plugin adds `com.google.errorprone:error_prone_core` to `annotationProcessor`, making it available on the processor path. However, the full ErrorProne javac plugin integration (`-Xplugin:ErrorProne`) is intentionally **not wired** in this prototype — ErrorProne-as-a-javac-plugin requires the `net.ltgt.errorprone` Gradle plugin and custom compiler arguments that are separate from the annotation processor mechanism. The prototype annotates Java with `@AutoValue`, `@AutoService`, and `jadconfig` processors (all working), while ErrorProne linting is deferred.
+**Maven** runs ErrorProne as a real javac plugin via `-Xplugin:ErrorProne`, wired through the `maven-compiler-plugin` `<compilerArgs>` block in the parent `pom.xml` (around line 1153). This activates ErrorProne's compile-time analysis on every `javac` invocation.
 
-**Impact:** no ErrorProne warnings/errors during `compileJava`. Maven also enables ErrorProne only partially (via `maven-compiler-plugin` configuration). No functional regression for the prototype's stated goals.
+**Gradle prototype:** ErrorProne is intentionally **left inert**. The `graylog.java-conventions` plugin adds `com.google.errorprone:error_prone_core` to `annotationProcessor` (processor path only), but `-Xplugin:ErrorProne` is never passed to the forked `javac`. The `annotationProcessor(errorprone-core)` declaration therefore does nothing at compile time — ErrorProne-as-a-javac-plugin requires the `net.ltgt.errorprone` Gradle plugin plus explicit compiler arguments, which is a separate integration effort outside this prototype's scope.
+
+**Impact:** no ErrorProne warnings/errors during `compileJava`. This is an intentional, in-scope prototype simplification — wiring full ErrorProne is a follow-on task. No functional regression for the prototype's stated acceptance criteria.
 
 ### 2. Storage module `compileOnly` scope for server dependency
 

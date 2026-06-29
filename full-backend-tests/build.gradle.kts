@@ -118,6 +118,15 @@ afterEvaluate {
     sourceSets["test"].runtimeClasspath += backendProvided
 }
 
+tasks.register<Test>("fullBackendTest") {
+    description = "Runs the heavy @FullBackendTest integration tests (requires Docker)."
+    group = "verification"
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    useJUnitPlatform { includeTags("full-backend-test") }
+    jvmArgs("-Djava.awt.headless=true")
+}
+
 // ---------------------------------------------------------------------------
 // Tag exclusion: @FullBackendTest is a composed annotation defined as
 // @Tag("full-backend-test") @Test in graylog2-server's test sources.

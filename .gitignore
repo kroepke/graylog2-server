@@ -46,5 +46,12 @@ data-node/bin/*
 
 # Gradle
 .gradle/
-**/build/
+/build/
+/buildSrc/build/
+/graylog2-server/build/
+/graylog-storage-elasticsearch7/build/
+/graylog-storage-opensearch2/build/
+/graylog-storage-opensearch3/build/
+/full-backend-tests/build/
+/graylog2-web-interface/build/
 !gradle/wrapper/gradle-wrapper.jar

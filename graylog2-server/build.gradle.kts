@@ -25,6 +25,7 @@ testing {
                 testTask.configure {
                     include("**/*Spec.class", "**/*Test.class")
                     exclude("**/*IntegrationTest.class", "**/*IT.class")
+                    useJUnitPlatform { excludeTags("full-backend-test") }
                     jvmArgs(
                         "-javaagent:${mockitoAgent.singleFile}",
                         "-Dio.netty.leakDetectionLevel=paranoid",
