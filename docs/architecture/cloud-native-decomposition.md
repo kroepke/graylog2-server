@@ -1,13 +1,14 @@
 # Decomposing the Graylog server into independently scalable components
 
-Status: exploration / discussion draft. Nothing in this document is implemented.
+Status: exploration / discussion draft, revision 2 (adds the Kubernetes and multi-tenant
+deployment model and the broker comparison). Nothing in this document is implemented.
 
 This document records what the `server` process looks like today, the concrete
 couplings that stop it from scaling by concern, the seams that already exist, and
 a proposed target model with the architectural changes each step requires.
 Every statement about current behaviour references the code it was derived from
 (paths are relative to `graylog2-server/src/main/java/` unless noted). Sections
-marked *Proposal* are design options, not facts about the codebase.
+4 to 9 are design options, not facts about the codebase, except where they cite code.
 
 Out of scope: closed-source enterprise plugins and the Forwarder. The OSS tree
 contains accommodations for them (see §3) but their internals could not be
@@ -202,235 +203,356 @@ rather than invent.
 
 ---
 
-## 4. Proposal: target component model
+## 4. Deployment context: Kubernetes, Graylog Cloud, MSP/MSSP tenants
 
-*Proposal.* Split by scaling characteristic, not by package. Each component is
-a role; a process can run one or several roles. `server` remains "all roles"
-so single-node and existing multi-node deployments keep working.
+The primary target is Kubernetes, for Graylog Cloud and for MSP/MSSP-style
+providers running many tenants. The economic goal is that a tiny tenant costs
+close to nothing at idle (scale to zero, or to one small pod) and that any
+tenant can absorb a spike by scaling out on demand. Kafka or NATS is the
+assumed transport between ingest and processing.
+
+This section is *proposal* except where it cites code.
+
+### 4.1 Tenancy topology
+
+The codebase assumes one MongoDB database, one cluster id and one plugin set per
+JVM: `ClusterConfigService`, every `MongoCollection<T>` binding, the
+`cluster_events` tail, `LookupTableService`, the pipeline interpreter state and
+the stream router are all process singletons. Making the processing, API or
+worker code tenant-aware inside one JVM would touch nearly every service and
+cache. That rules out "one shared deployment of every role for all tenants" as
+a near-term design.
+
+The workable shape is therefore:
+
+| Layer | Sharing | Rationale |
+|---|---|---|
+| Ingest gateway (§4.2) | **Shared per cell**, tenant-aware | The only role that must stay up for a tenant with listening inputs; the Forwarder precedent shows inputs can run without Mongo |
+| Broker | Shared per cell; one topic/stream (or account) per tenant | Buffers while a tenant's processing is scaled to zero |
+| `processing`, `api`, `worker` | **Per tenant**, scale 0..N | Keeps today's single-database assumption; scale-to-zero removes the idle cost instead of a multi-tenant rewrite |
+| MongoDB | Shared replica set / Atlas, database per tenant | Idle tenants hold zero connections once their pods are gone |
+| OpenSearch / Data Node | Per tenant or pooled with index-level isolation | Out of scope here; the same choice exists today |
+| Control plane | Shared per cell (operator) | Owns tenant lifecycle, wake-up, scaling policies, gateway configuration |
+
+A **tiny tenant** in this model is one pod running all roles (`server` with
+no role restriction) at `minReplicas: 1`, or 0 with an activator, plus the
+shared gateway. A **growing tenant** adds role-specific pods next to it:
+extra `processing` pods join the same consumer group, extra `api` pods sit
+behind the same service. Nothing has to be redeployed to move from one shape
+to the other, which is the main argument for "one binary, roles in config".
+
+### 4.2 A shared, tenant-aware ingest gateway
+
+Listening inputs cannot scale to zero per tenant: something must own the
+socket. The way out is a shared gateway per cell that accepts on behalf of all
+tenants and writes into each tenant's topic. Evidence that the codebase can
+support this without Mongo on the gateway side:
+
+- `AWSModule`/`IntegrationsModule` already skip Mongo-dependent bindings under
+  the `graylog.forwarder` property, and `MessageInput#isForwarderCompatible`
+  marks input types that run without a server context.
+- The journal payload (`RawMessage` protobuf) already carries the codec name,
+  the filtered codec config and a source-node chain; decoding, extractors and
+  static fields run on the processing side (`DecodingProcessor`,
+  `ExtractorFilter`, `StaticFieldFilter`).
+- `is_cloud` already forces global inputs and filters to cloud-compatible
+  input types (`InputsResource`, `InputTypesResource`), and
+  `CollectorsConfigResource` already assumes an `ingest-` hostname scheme.
+
+What the gateway needs that does not exist yet:
+
+- **Tenant identification per connection**: hostname/SNI per tenant for TLS
+  protocols, client certificates (the collectors code already has
+  `CertBindingResolver`), a token header for HTTP/OTLP, dedicated ports or
+  source addresses for plain TCP/UDP. UDP syslog is the hard case; it only
+  works with per-tenant ports or IPs.
+- **Configuration from the control plane instead of Mongo**: which input
+  types, ports, codecs and TLS material per tenant, pushed as a document the
+  gateway reconciles. The `InputCreateRequest` shape and the `inputs`
+  collection remain the tenant-facing model; the control plane projects them
+  onto the gateway.
+- **Tenant-scoped throttling**: today's `ThrottleState` comes from the local
+  journal. The gateway needs per-tenant write quotas at the broker
+  (both Kafka and NATS support them) and a per-tenant `THROTTLED` status.
+- **Pull-based inputs** (AWS, HTTP poll, Kafka/AMQP consumers, cloud APIs)
+  do not belong on the gateway. They become singleton jobs on the tenant's
+  `worker`, which can scale to zero between polls.
+
+Whether Graylog Cloud already runs something like this is outside the OSS
+tree; the Forwarder hints suggest at least part of it exists.
+
+### 4.3 Scaling signals per role
+
+| Role | Scaler | Signal | Min replicas | Notes |
+|---|---|---|---|---|
+| Ingest gateway | HPA/KEDA | CPU, open connections, broker write latency | ≥ 2 per cell | Shared; never per tenant |
+| `processing` | KEDA Kafka lag / NATS JetStream pending | lag > 0, or oldest unacked message age > T for tiny tenants (batch the cold start) | 0 | Consumer group membership is the parallelism unit |
+| `api` | KEDA HTTP add-on or Knative | in-flight requests | 0 | Cold start (§4.4) is the whole game; UI polling keeps a pod warm |
+| `worker` | KEDA MongoDB scaler | count of `scheduler_triggers`/`scheduler_system_triggers` with `status=RUNNABLE` and `next_time <= now` | 0 in theory | Interval event definitions (every minute) keep it up permanently; see below |
+| Migrations / preflight | Job | tenant create / upgrade | n/a | Never on pod start |
+
+The `worker` is the awkward one. Rotation, retention and event definitions are
+interval jobs, so a tenant with any alerting never idles. Options:
+
+1. Accept `minReplicas: 1` for tenants with event definitions (the "at least
+   one" the goal allows), with the all-roles pod covering it for tiny tenants.
+2. Stretch intervals for idle tenants: rotation and retention every N minutes
+   when `processing_status` shows no ingest; event definitions with
+   `hasMessagesIndexedUpTo` false are already rescheduled (`AggregationEventProcessor`
+   guard), so a tenant with no traffic could skip evaluation entirely.
+3. Longer term, a shared multi-tenant worker that opens a tenant's database per
+   trigger. It is the smallest role to make tenant-aware (jobs already receive
+   their context from the trigger), but it still needs per-tenant injectors.
+
+### 4.4 Scale-to-zero mechanics and what the code needs
+
+- **Cold start is the primary engineering target for `api` and `processing`.**
+  Today a `server` start runs preflight checks and migrations
+  (`ServerBootstrap#beforeInjectorCreation`, `#startCommand`), builds a Guice
+  injector from ~45 modules plus plugins, probes the indexer version
+  (`elasticsearch_version_probe_*`), runs indexer discovery with retries
+  (`IndexerDiscoveryProvider`), starts all lookup adapters and caches
+  (`LookupTableService`), and only then flips to `RUNNING`. The startup
+  timings are already logged (`serviceManager.startupTimes()` in
+  `ServerBootstrap`); measure them per role before deciding on JVM-level help
+  (AppCDS, CRaC, or a warm pool of pre-started pods per cell).
+- **Preflight, migrations and CA bootstrap move to a Job.** They are leader
+  gated today and run on every start; a scaled-from-zero pod must not run
+  them. The `migrate` command exists; `skip_preflight_checks` and
+  `run_migrations=false` are the interim switches.
+- **Node identity.** `FilePersistedNodeIdProvider` generates a new id when no
+  file exists, so an ephemeral pod is a new node every time. Consequences in
+  the code: `nodes` churn (`dropOutdated` handles it), `input_runtime_states`
+  rows for dead nodes (cleaned by a leader-only periodical), and job triggers
+  locked by a killed pod stay locked for `job_scheduler_lock_expiration_duration`
+  (5 min) because `forceReleaseOwnedTriggers` only fires for the same node id.
+  Use the pod name as node id, release triggers on SIGTERM, and lower the lock
+  expiry.
+- **Graceful scale-down of `processing`.** `JobSchedulerService#triggerShutdown`
+  stops claiming and waits for running jobs; `BufferSynchronizerService` drains
+  process/output buffers only if the indexer is healthy. With a broker,
+  un-acked messages are simply redelivered, so the pod needs: stop pulling,
+  flush the output batch, ack, exit, within `terminationGracePeriodSeconds`.
+  That is simpler than today's journal drain, provided acks are per message
+  (§5).
+- **Readiness per role.** `Lifecycle` is one state for the whole JVM and one
+  failing service sets `FAILED` for everything. Each role needs its own
+  readiness (gateway: sockets bound and broker reachable; processing: consumer
+  joined; api: Jersey up and Mongo reachable; worker: scheduler loop running).
+- **No local state on scaled roles.** Journal (`message_journal_dir`),
+  `content_packs_dir`, GeoIP files (an S3 puller exists under `is_cloud`),
+  input TLS files, support bundles on the leader's disk, `node_id_file`. In
+  broker mode none of these should require a volume.
+- **Metrics via Prometheus, not fan-out.** `PrometheusExporter` exists per
+  node; `ClusterMetricsResource` and friends fanning out over `nodes` do not fit
+  pods that come and go. The UI's cluster pages need a metrics source that is
+  not the REST fan-out.
+- **Cluster events under churn.** `ClusterEventService` resumes from "now" on
+  start; a pod scaled from zero rebuilds its caches from Mongo anyway, so this is
+  fine, but the capped collection must be sized for the cell, not the tenant.
+
+## 5. Broker choice: Kafka vs NATS JetStream
+
+Both fit behind the existing `MessageQueueReader`/`Writer`/`Acknowledger` SPI.
+The differences that matter for this deployment model:
+
+| Concern | Kafka (incl. Redpanda/WarpStream) | NATS JetStream |
+|---|---|---|
+| Unit of parallelism | Partition; one active consumer per partition per group; partition count fixed upward only | Pull consumer; any number of workers pull from one consumer (`MaxAckPending` bounds in-flight); no partitions |
+| Ack model | Offset commit per partition, monotone. With Graylog's parallel output buffer, completion is out of order, so a per-partition "contiguous acked" tracker is needed before committing, or the batch keeps today's high-water-mark semantics | Explicit per-message ack with redelivery after `AckWait`. Matches out-of-order completion directly and removes the §2.2 at-most-once edge |
+| Tenancy | Topic + ACL + quota per tenant in one cluster; thousands of topics are routine on KRaft | Account per tenant with JetStream limits; stream per tenant. Each replicated stream is a Raft group, so very large stream counts need a test |
+| Buffer semantics (replaces `message_journal_max_size/age`) | Retention by size/time per topic; object-storage tiering in recent Kafka and in Redpanda/WarpStream | Limits retention by bytes/age/messages per stream; no built-in object-storage tier as far as I know |
+| Dedup / idempotent ingest | Idempotent producer per session; no cross-session dedup | `Nats-Msg-Id` header dedup within a window, useful if `gl2_message_id` moves to ingest |
+| Max message size | ~1 MB default, configurable | 1 MB default, configurable upward with a hard ceiling |
+| Scale-to-zero scaler | KEDA Kafka scaler on consumer lag | KEDA NATS JetStream scaler on pending messages |
+| Ordering | Per partition | Per subject as published; not across parallel pullers |
+| Kubernetes operations | Strimzi; KRaft removes ZooKeeper; heavier footprint; managed offerings everywhere | Helm chart / NACK operator; small footprint; managed offering exists |
+| Throughput ceiling | Very high, scales with partitions; the safe choice for a few very large tenants | Adequate for moderate per-tenant rates; single-stream throughput is lower than a multi-partition topic |
+
+Recommendation, as an opinion to be tested rather than a fact: for the "many
+tiny tenants, scale to zero" objective, **NATS JetStream** fits better. Its
+per-message ack matches the pipeline's out-of-order completion, accounts give
+per-tenant isolation without an ACL layer, and idle streams are cheap. Kafka
+wins when a few tenants dominate throughput or when the platform already runs
+Kafka. The SPI should be designed to the JetStream-shaped contract (pull a
+bounded batch, ack per message, redelivery on timeout) because it is
+implementable on Kafka with an acked-range tracker, whereas the reverse is not
+true. Prototype both behind the SPI on a synthetic tenant fleet before
+committing; the existing `MessageQueueModule` switch on `message_journal_mode`
+is the only integration point either needs.
+
+## 6. Proposal: target component model
+
+Split by scaling characteristic, not by package. Each component is a role; a
+process can run one or several roles. `server` remains "all roles" so
+single-node and existing multi-node deployments keep working, and so a tiny
+tenant can be one pod.
 
 | Role | Runs | External deps | Scaling model | Scale to zero? |
 |---|---|---|---|---|
-| `ingest` | Inputs, input buffer, queue writer, input runtime-state reporting | Sockets, broker, Mongo (config + state) | Horizontal by input type / partition; listening inputs need ≥1 replica per input | Pull-based inputs yes; listening inputs no (but per input type) |
-| `processing` | Queue reader, process buffer, message processors, output buffer, outputs incl. indexer | Broker, Mongo, OpenSearch, lookup sources | Horizontal on consumer-group lag | Yes, when the broker holds the backlog |
-| `api` | REST, web UI, sync search, export streaming | Mongo, OpenSearch | Horizontal on request load, stateless | Yes |
-| `worker` | User + system job schedulers (event processors, notifications, index maintenance jobs), everything that is `leaderOnly()` today, expressed as jobs | Mongo, OpenSearch, SMTP/HTTP | Horizontal on trigger backlog; singleton jobs via lock/constraint | Yes, apart from a minimum cadence for rotation/retention |
-| `migrate` (one-shot) | Schema migrations, preflight, CA/cert bootstrap | Mongo, OpenSearch | Job / init container | n/a |
+| Ingest gateway | Listening inputs for all tenants of a cell, queue writer | Sockets, broker, control plane | Horizontal on connections/CPU; shared | No, by design (shared) |
+| `processing` | Queue reader, process buffer, message processors, output buffer, outputs incl. indexer | Broker, Mongo, OpenSearch, lookup sources | Horizontal on consumer lag | Yes |
+| `api` | REST, web UI, sync search, export streaming | Mongo, OpenSearch | Horizontal on request load, stateless | Yes, cold-start bound |
+| `worker` | User + system job schedulers (event processors, notifications, index maintenance), everything `leaderOnly()` today as jobs, pull-based inputs as singleton jobs | Mongo, OpenSearch, SMTP/HTTP, external APIs | Horizontal on due triggers; singleton jobs via lease | To one for tenants with alerting; zero otherwise |
+| `migrate` (Job) | Schema migrations, preflight, CA/cert bootstrap | Mongo, OpenSearch | Kubernetes Job on create/upgrade | n/a |
 
-Shared substrate for all roles: MongoDB (config, state, `cluster_events`), the
-node registry with roles, the message broker, and OpenSearch/Data Node.
-
-Design decisions embedded in this model, each of which is a choice you may
-want to make differently:
+Design decisions embedded here, each open to a different call:
 
 - **Processing and indexing stay together in the first cut.** The ack path and
-  `post_indexing` watermark are the tightest coupling (§2.2). Splitting them
-  later means a second queue between processing and indexing; it is possible
-  but is not what is needed for independent ingest/search scaling.
-- **The leader disappears as a concept; singleton work becomes a job.** The
-  worker role absorbs the leader-only periodicals as scheduler jobs with a
-  singleton constraint. Leader election survives only as an implementation
-  detail of "who runs singleton jobs", ideally replaced by the per-trigger
-  lease that already exists.
+  `post_indexing` watermark are the tightest coupling (§2.2). A later split
+  needs a second queue and is not required for the scaling goals above.
+- **The leader disappears as a concept; singleton work becomes a job** claimed
+  through the lease that `DBJobTriggerService` already implements.
 - **Search async state moves to Mongo.** Without this the `api` role is sticky.
-- **One binary, role list in config.** See §5.1 for the alternative.
+- **One binary, role list in config.** See §7.1 for the alternative.
 
----
+## 7. What it takes: architectural changes in dependency order
 
-## 5. What it takes: architectural changes in dependency order
-
-Each item lists the changes it requires and the options where a real choice
-exists. The numbering is a dependency order, not a strict sequence.
-
-### 5.1 Introduce node roles (prerequisite for everything)
+### 7.1 Introduce node roles (prerequisite for everything)
 
 Required:
 - A `roles` set on `ServerNodeDto`/`nodes`, written by `NodePingThread`,
   exposed by `NodeService` (`allActive(role)`), and a `NodeRoles` service
   bound per process.
 - `ProxiedResource` becomes role-aware: `requestOnAllNodes(role, …)`; each
-  `Cluster*Resource` declares the role its target state lives on (journal →
-  `ingest`, input states → `ingest`, metrics → all, deflector → `worker`, …).
+  `Cluster*Resource` declares the role its target state lives on.
 - Module composition by role: split `Server#getNodeCommandBindings` into
   role-tagged groups; extend `GraylogNodeConfiguration` (or a sibling) with the
   role set; plugin extension keys routed by role (a marker interface per role
-  like `DatanodePlugin`, or a `@ForRoles` annotation on `PluginModule`s).
+  like `DatanodePlugin`, or a role annotation on `PluginModule`s).
 - Replace ad-hoc gates (`is_cloud`, `graylog.forwarder`, `global_inputs_only`)
   with role checks where they are really role checks.
+- Per-role readiness on `ServerStatus` (§4.4).
 
 Options:
-1. **One binary, `node_roles = ingest,processing,api,worker`** (recommended to
-   start). `server` with no setting means all roles. Lowest migration cost,
-   one artifact, roles can be combined freely (e.g. `ingest,processing` for a
-   classic node).
-2. **One command per role** (`graylog ingest`, …) via `CliCommandsProvider`.
-   Cleaner classpath per role, but multiplies bootstrap code that is already
-   share-by-copy (§2.7). Could be added later on top of option 1.
+1. **One binary, `node_roles = ingest,processing,api,worker`** (recommended).
+   `server` with no setting means all roles; a tiny tenant is one pod.
+2. **One command per role** via `CliCommandsProvider`. Cleaner classpath per
+   role, but multiplies bootstrap code that is already share-by-copy (§2.7).
+   Can be layered on option 1 later.
 
-### 5.2 Make the `api` role stateless
+### 7.2 Make the `api` role stateless and fast to start
 
 Required:
 - Bind `SearchJobService` to a Mongo-backed implementation (extend
-  `SearchJobStateService`) or accept sticky routing on `nodeId`; the former
-  removes `SearchJobsStatusResource`'s reason to exist.
-- Retire `LegacySystemJobManager` (already `@Deprecated(since="7.1")`); the
-  remaining legacy jobs (`FixDeflectorBy*Job`, `IndexSetCleanupJob`) move to
-  the system scheduler.
-- Lookup-table purge and logger-level changes become cluster events instead
-  of REST fan-out, or stay node-local by design.
-- `SimulatorResource` and `ExtractorsResource#test` need the processing
-  state and lookup tables; either the `api` role loads them too (cheap, Mongo
-  only) or these calls are proxied to a `processing` node.
-- Optionally make the web UI a separate role or a flag so `api` can be
-  headless.
+  `SearchJobStateService`); remove the need for `SearchJobsStatusResource`.
+- Retire `LegacySystemJobManager` (already `@Deprecated(since="7.1")`); move
+  `FixDeflectorBy*Job` and `IndexSetCleanupJob` to the system scheduler.
+- Lookup-table purge and logger-level changes become cluster events; metrics
+  move to Prometheus.
+- `SimulatorResource` and `ExtractorsResource#test` need pipeline state and
+  lookup tables: either `api` loads them too (Mongo only, cheap) or proxies to
+  a `processing` pod.
+- Preflight and migrations out of the start path; measure and cut cold start.
 
-No broker involvement; this step is independently shippable.
+No broker involvement; independently shippable.
 
-### 5.3 Dissolve the leader into the `worker` role
+### 7.3 Dissolve the leader into the `worker` role
 
 Required:
 - `JobSchedulerConfig#canExecute` → "this node has role `worker`";
-  `numberOfWorkerThreads` configurable.
+  `numberOfWorkerThreads` configurable; release owned triggers on SIGTERM.
 - Convert `leaderOnly()` periodicals into scheduler jobs with an interval
-  schedule and a singleton constraint. The `constraints` + `SchedulerCapabilities`
-  mechanism exists; a `singleton` capability or a per-job lock via
-  `RefreshingLockService` provides exclusivity. Candidates with their current
-  cadence: rotation (10 s), retention (5 m), field-type polling (1 s; needs
-  redesign as it is also event-driven), index-range cleanup, token cleaners,
-  cert provisioning (2 s), data-node housekeeping (2 s), version check,
-  telemetry, sidecar/collector purges.
+  schedule and a singleton constraint via `constraints`/`SchedulerCapabilities`
+  or `RefreshingLockService`. Candidates with current cadence: rotation (10 s),
+  retention (5 m), field-type polling (1 s, also event-driven), index-range
+  cleanup, token cleaners, cert provisioning (2 s), data-node housekeeping
+  (2 s), version check, telemetry, sidecar/collector purges.
 - `@RestrictToLeader` endpoints: deflector cycle becomes a system-job
-  submission; support-bundle build writes to shared storage (Mongo GridFS or
-  object storage) instead of the leader's disk.
-- Migrations: the `migrate` command already exists; make it the only path and
-  have `server` verify schema version rather than run migrations (or keep
-  "first `worker` to acquire the migration lock runs them").
-- Failover latency: replace the Mongo TTL-index lock expiry with an explicit
-  heartbeat + `updated_at` comparison (the scheduler's `lock.last_lock_time`
-  pattern), and lower `job_scheduler_lock_expiration_duration` defaults.
-- `InputEventListener#leaderChanged` for `onlyOnePerCluster()` inputs is
-  replaced by the input placement in §5.5.
+  submission; support bundles go to shared storage.
+- Migrations: `migrate` command as the only path; `server` verifies the schema
+  version instead of running migrations.
+- Replace the Mongo TTL-index lock expiry with an explicit heartbeat compare
+  (the scheduler's `lock.last_lock_time` pattern) and lower
+  `job_scheduler_lock_expiration_duration`.
+- Idle-tenant behaviour for interval jobs (§4.3 option 2).
 
-### 5.4 Replace the local journal with a broker (ingest ⟂ processing)
+### 7.4 Broker-backed queue (ingest ⟂ processing)
 
-This is the structural change. Required regardless of broker:
+Required regardless of broker:
+- `MessageQueueWriter`/`Reader`/`Acknowledger` for the broker, bound through
+  `bindMessageQueueImplementation`, selected by `message_journal_mode`.
+- Reader decoupled from `ProcessBuffer`: bounded-prefetch pull loop instead of
+  "read exactly remaining capacity + semaphore"; `Acknowledgeable` ids become
+  broker-native; acks per message after `BatchedMessageFilterOutput#flush`
+  (Kafka: acked-range tracker per partition before commit).
+- Backpressure: `ThrottleState` from consumer lag and broker quotas; LB status
+  for the gateway from broker write health, for `processing` from lag.
+- `processing_status` split into gateway/ingest facts and processing facts;
+  `DBProcessingStatusService#calculateProcessingState` rewritten so the
+  `AggregationEventProcessor` guard keeps working with processing at zero
+  (a tenant with lag > 0 is "not up to date", which is the correct answer).
+- Message identity: decide whether `gl2_message_id` is assigned at ingest so
+  redelivery is idempotent (JetStream dedup header can then be used).
+- Keep `disk` mode for single-node and on-prem: `ingest,processing` on one
+  node stays supported.
 
-- A `MessageQueueWriter`/`Reader`/`Acknowledger` implementation for the broker,
-  bound through `bindMessageQueueImplementation`, selected by
-  `message_journal_mode`.
-- Decouple the reader from `ProcessBuffer`: replace "read exactly remaining
-  capacity + semaphore" with a pull loop with bounded prefetch; `Acknowledgeable`
-  ids become `(partition, offset)` or broker-native ids; acks committed per
-  consumer group after `BatchedMessageFilterOutput#flush`.
-- Redefine backpressure: `ThrottleState` from consumer lag / broker quota
-  instead of local journal offsets; LB status for `ingest` from broker write
-  health; for `processing` from consumer lag.
-- Split `processing_status`: `ingest` nodes report `ingest` receive time and
-  queue write health; `processing` nodes report `post_processing`/`post_indexing`
-  and lag. `DBProcessingStatusService#calculateProcessingState` is rewritten to
-  combine them so `AggregationEventProcessor`'s guard keeps working.
-- Ordering and duplicates: today ordering is per-node journal order and
-  replays after a crash produce duplicates (ULIDs are assigned in
-  `ProcessBufferProcessor`, i.e. after the journal). A partitioned broker keeps
-  per-partition order; at-least-once stays the semantic. Decide whether
-  `gl2_message_id` should be assigned at ingest so replays are idempotent.
-- Payload: journal entries are `RawMessage` protobuf with codec name and
-  filtered codec config already embedded (`MessageInput#codecConfig`), so the
-  wire format exists.
-- Keep `disk` mode: single-node and on-prem deployments keep the local journal,
-  which means `ingest,processing` on one node must remain a supported
-  combination.
-
-Options for the broker:
-1. **Kafka-compatible** (Kafka, Redpanda, cloud-managed equivalents). The
-   journal is already Kafka's log format; partitions map to processing
-   parallelism; mature consumer-group semantics. Operational weight on-prem.
-2. **NATS JetStream / Pulsar**: lighter (NATS) or more multi-tenant (Pulsar);
-   fewer users will already run them next to Graylog.
-3. **Keep the local journal on `ingest` and ship over gRPC to `processing`**
-   (the Forwarder pattern). No new infrastructure, but it re-creates a
-   point-to-point topology, needs its own load balancing and ack protocol, and
-   ingest disks remain the buffer. Reasonable as a transition or for edge cases.
-
-The SPI shape does not force this decision; option 1 is the one the existing
-code most naturally fits.
-
-### 5.5 Input placement and ingest scaling
+### 7.5 Shared ingest gateway and input placement
 
 Required:
-- Replace `global`/`node_id` with a placement spec on the input: role
-  selector (default `ingest`), replica count or "all nodes with role",
-  singleton flag (replaces `onlyOnePerCluster()`), and optional node
-  affinity for legacy pinned inputs.
-- A reconciler on `ingest` nodes: desired state (`inputs` + placement) vs
-  actual (`input_runtime_states`), with singleton inputs claimed through
-  `LockService`. This removes the three copies of the placement predicate and
-  `PersistedInputsImpl#iterator`.
-- Certificates for TLS inputs from Mongo/secret store rather than node-local
-  paths (`AbstractTcpTransport`/`KeyUtil`), so any `ingest` replica can serve
-  the input.
-- Per-input-type sizing is a deployment concern (one Deployment per input
-  group, all with role `ingest` and a selector), not a code concern, once the
-  selector exists.
-- Scale-to-zero for listening inputs is not possible while a listener must
-  exist; for pull inputs (AWS, Kafka, HTTP poll, …) it is, as jobs on `worker`
-  or as singleton `ingest` inputs.
+- Gateway role built from the forwarder-compatible subset of inputs, no Mongo,
+  configuration pushed by the control plane (§4.2); tenant id and source-node
+  chain stamped on every `RawMessage`; per-tenant topic/stream routing.
+- Replace `global`/`node_id` with a placement spec on the input: `gateway`
+  (listening, shared), `worker` singleton (pull-based), or legacy node
+  pinning for on-prem. A reconciler replaces `PersistedInputsImpl#iterator`
+  and the three placement predicates in `InputEventListener`.
+- Certificates for TLS inputs from the control plane/secret store rather than
+  node-local paths.
+- Input runtime state for gateway-hosted inputs reported per tenant into
+  `input_runtime_states` (already keyed by input and node).
 
-### 5.6 Bootstrap and composition hygiene
+### 7.6 Bootstrap and composition hygiene
 
-Not strictly required, but the cost of every step above is lower after it:
-- Extract a genuinely shared "node runtime" module set (service manager,
-  periodicals, scheduler executors, node registry, cluster events, config
-  module) used by `server`, `datanode`, and any future role command.
-- Group `Server#getNodeCommandBindings` into per-concern modules with role tags.
-- Make the ServiceManager start order explicit (dependency graph or phases) so a
-  role's readiness is meaningful.
-- Per-role readiness/liveness on `ServerStatus`/`Lifecycle` so orchestrators
-  can act on them; `Lifecycle.FAILED` on one service is too coarse for a
-  multi-role process.
+Not strictly required, but every step above is cheaper after it: a genuinely
+shared node-runtime module set (used by `server`, `datanode`, gateway), per-concern
+role-tagged modules instead of the 45-module block, explicit ServiceManager
+start order, and per-role readiness.
 
----
-
-## 6. Suggested sequencing
+## 8. Suggested sequencing
 
 Each phase is shippable on its own and keeps `server` = all roles working.
 
 | Phase | Outcome | Depends on | Risk |
 |---|---|---|---|
-| 0 | Roles exist in config, `nodes`, `ProxiedResource`; no behaviour change for default deployments | – | Low |
-| 1 | `api` role can run standalone and stateless; search jobs in Mongo; legacy system jobs gone | 0 | Low |
-| 2 | `worker` role; leader-only periodicals are jobs; scheduler runs on all workers; migrations explicit | 0 | Medium (touches rotation/retention correctness) |
-| 3 | Broker-backed queue mode; `ingest` and `processing` roles run in separate processes; `processing_status` split | 0, 2 | High (data path) |
-| 4 | Input placement spec + reconciler; certificates from store; ingest groups per input type | 3 | Medium |
-| 5 | Optional: processing ⟂ indexing split, headless `api`, per-role commands | 3 | Medium |
+| 0 | Roles in config, `nodes`, `ProxiedResource`; per-role readiness; migrations as a Job; startup measured | – | Low |
+| 1 | `api` runs standalone, stateless, scaled by requests; search jobs in Mongo; legacy jobs gone | 0 | Low |
+| 2 | `worker` role; leader-only periodicals are jobs; scheduler on all workers; triggers released on SIGTERM; idle-tenant cadence | 0 | Medium |
+| 3 | Broker SPI implementation (JetStream first, Kafka behind the same contract); `processing` scales on lag to zero; `processing_status` split | 0, 2 | High (data path) |
+| 4 | Shared ingest gateway; placement spec; certificates from the control plane | 3 | Medium |
+| 5 | Operator: tenant CRD → per-role deployments, KEDA objects, gateway config; tiny-tenant all-roles profile | 0–4, deployment side | Medium |
+| 6 | Optional: processing ⟂ indexing split, shared multi-tenant worker, per-role commands | 3 | Medium |
 
-Phases 1 and 2 deliver most of the "no leader obsession" and "scale search
-independently" goals without touching the data path, which is why they come
-before the broker.
+Phases 1 and 2 remove the leader and make search scale without touching the
+data path; phase 3 is where scale-to-zero for the data path arrives; phase 4
+is what makes tiny tenants cheap.
 
----
+## 9. Open questions
 
-## 7. Open questions to decide before phase 3
-
-1. **Broker choice and on-prem story.** Is a Kafka-compatible dependency
-   acceptable for on-prem, or must `disk` mode remain the default forever with
-   the broker as an opt-in cloud mode?
-2. **One binary vs. per-role commands.** §5.1 recommends one binary; confirm.
-3. **Enterprise plugins and the Forwarder.** They are not in this tree. Which
-   extension keys do they rely on, and does the Forwarder already implement a
-   remote `MessageQueueWriter` (the `MessageQueueModule` comment suggests
-   external journal modes exist)? If so, phase 3 may partly exist.
-4. **Search jobs.** Is there already an enterprise `SearchJobService`
-   override? If not, is Mongo-backed job state acceptable for latency?
-5. **Message identity.** Assign `gl2_message_id` at ingest for idempotent
+1. **Tenancy topology.** Confirm stack-per-tenant for `processing`/`api`/`worker`
+   with a shared gateway and broker per cell, as opposed to multi-tenant
+   components. The latter is a rewrite of the singleton assumptions.
+2. **Broker.** JetStream-shaped SPI, prototype both; pick after a spike. Does
+   the platform already run Kafka, and how many tenants per cell are expected?
+3. **Tiny-tenant baseline.** Is "one all-roles pod at min 1" acceptable, or
+   must true zero (with request/lag activation and a cold start measured in
+   tens of seconds) be the target from the start?
+4. **What Graylog Cloud does today** for ingest hostnames, the Forwarder, and
+   any existing remote journal mode. These are outside the OSS tree and may
+   already cover part of phases 3 and 4.
+5. **Node identity for pods**: pod name as node id, and how much of the
+   `nodes`/`input_runtime_states`/trigger-lock cleanup to keep.
+6. **Search jobs.** Is there an enterprise `SearchJobService` override, and is
+   Mongo-backed job state acceptable for latency?
+7. **Message identity.** Assign `gl2_message_id` at ingest for idempotent
    replay, or keep assignment in processing?
-6. **Data Node relationship.** Should `worker` own data-node provisioning and
-   housekeeping (currently leader periodicals), or does the Data Node grow its
-   own coordination?
-7. **Compatibility floor.** Which existing REST endpoints that expose node-local
-   state (`/cluster/{nodeId}/journal`, `/cluster/inputstates`, `/cluster/jobs`)
-   must keep their shape for the UI and for customers' automation?
-
----
+8. **Data Node.** Does `worker` own data-node provisioning and housekeeping,
+   or does the Data Node grow its own coordination? Per-tenant OpenSearch vs
+   pooled with index isolation is a separate decision with cost implications
+   of the same order as this whole exercise.
+9. **Compatibility floor.** Which node-local REST endpoints
+   (`/cluster/{nodeId}/journal`, `/cluster/inputstates`, `/cluster/jobs`) must
+   keep their shape for the UI and for customers' automation?
 
 ## Appendix: key files
 
