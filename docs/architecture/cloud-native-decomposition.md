@@ -1,7 +1,8 @@
 # Decomposing the Graylog server into independently scalable components
 
-Status: exploration / discussion draft, revision 2 (adds the Kubernetes and multi-tenant
-deployment model and the broker comparison). Nothing in this document is implemented.
+Status: exploration / discussion draft, revision 3. Revision 2 added the Kubernetes and
+multi-tenant deployment model; revision 3 records the decision to run the control plane
+on NATS and moves the job scheduler onto work queues. Nothing in this document is implemented.
 
 This document records what the `server` process looks like today, the concrete
 couplings that stop it from scaling by concern, the seams that already exist, and
@@ -209,7 +210,7 @@ The primary target is Kubernetes, for Graylog Cloud and for MSP/MSSP-style
 providers running many tenants. The economic goal is that a tiny tenant costs
 close to nothing at idle (scale to zero, or to one small pod) and that any
 tenant can absorb a spike by scaling out on demand. Kafka or NATS is the
-assumed transport between ingest and processing.
+assumed transport between ingest and processing, and NATS carries the control plane.
 
 This section is *proposal* except where it cites code.
 
@@ -228,11 +229,12 @@ The workable shape is therefore:
 | Layer | Sharing | Rationale |
 |---|---|---|
 | Ingest gateway (§4.2) | **Shared per cell**, tenant-aware | The only role that must stay up for a tenant with listening inputs; the Forwarder precedent shows inputs can run without Mongo |
-| Broker | Shared per cell; one topic/stream (or account) per tenant | Buffers while a tenant's processing is scaled to zero |
+| NATS (control plane) | Shared per cell; one account per tenant | Locks, presence, events, job dispatch, node requests (§5) |
+| Data-plane transport | Shared per cell where used; topic/stream per tenant; or the disk journal inside the all-roles pod | Buffers while a tenant's processing is scaled to zero (§5.3) |
 | `processing`, `api`, `worker` | **Per tenant**, scale 0..N | Keeps today's single-database assumption; scale-to-zero removes the idle cost instead of a multi-tenant rewrite |
 | MongoDB | Shared replica set / Atlas, database per tenant | Idle tenants hold zero connections once their pods are gone |
 | OpenSearch / Data Node | Per tenant or pooled with index-level isolation | Out of scope here; the same choice exists today |
-| Control plane | Shared per cell (operator) | Owns tenant lifecycle, wake-up, scaling policies, gateway configuration |
+| Operator | Shared per cell | Owns tenant lifecycle, NATS accounts and buckets, scaling policies, gateway configuration |
 
 A **tiny tenant** in this model is one pod running all roles (`server` with
 no role restriction) at `minReplicas: 1`, or 0 with an activator, plus the
@@ -285,24 +287,27 @@ tree; the Forwarder hints suggest at least part of it exists.
 
 | Role | Scaler | Signal | Min replicas | Notes |
 |---|---|---|---|---|
-| Ingest gateway | HPA/KEDA | CPU, open connections, broker write latency | ≥ 2 per cell | Shared; never per tenant |
-| `processing` | KEDA Kafka lag / NATS JetStream pending | lag > 0, or oldest unacked message age > T for tiny tenants (batch the cold start) | 0 | Consumer group membership is the parallelism unit |
+| Ingest gateway | HPA/KEDA | CPU, open connections, transport write latency | ≥ 2 per cell | Shared; never per tenant |
+| `processing` | KEDA on the data-plane transport (Kafka lag, JetStream pending) | lag > 0, or oldest unacked message age > T for tiny tenants (batch the cold start) | 0 with a broker; 1 with the disk journal (§5.3) | Consumer group membership is the parallelism unit |
 | `api` | KEDA HTTP add-on or Knative | in-flight requests | 0 | Cold start (§4.4) is the whole game; UI polling keeps a pod warm |
-| `worker` | KEDA MongoDB scaler | count of `scheduler_triggers`/`scheduler_system_triggers` with `status=RUNNABLE` and `next_time <= now` | 0 in theory | Interval event definitions (every minute) keep it up permanently; see below |
+| `worker` | KEDA NATS JetStream scaler | pending messages on the tenant's job work queue | 0 | Wakes exactly when work is dispatched (§5.2); interval jobs on idle tenants are the remaining cost |
 | Migrations / preflight | Job | tenant create / upgrade | n/a | Never on pod start |
 
-The `worker` is the awkward one. Rotation, retention and event definitions are
-interval jobs, so a tenant with any alerting never idles. Options:
+The `worker` still needs a policy for idle tenants: rotation, retention and
+event definitions are interval jobs, so a tenant with any alerting is woken
+every minute. Options, in order of preference:
 
-1. Accept `minReplicas: 1` for tenants with event definitions (the "at least
-   one" the goal allows), with the all-roles pod covering it for tiny tenants.
-2. Stretch intervals for idle tenants: rotation and retention every N minutes
-   when `processing_status` shows no ingest; event definitions with
-   `hasMessagesIndexedUpTo` false are already rescheduled (`AggregationEventProcessor`
-   guard), so a tenant with no traffic could skip evaluation entirely.
+1. Skip evaluation when there is nothing to evaluate: the
+   `AggregationEventProcessor` guard already reschedules when
+   `hasMessagesIndexedUpTo` is false, and rotation/retention can be dispatched
+   only when `processing_status` shows ingest since the last run. The
+   dispatcher (§5.2) is the natural place for this, because it sees both the
+   schedule and the tenant's activity.
+2. Accept `minReplicas: 1` for tenants with alerting; the all-roles pod covers
+   tiny tenants anyway.
 3. Longer term, a shared multi-tenant worker that opens a tenant's database per
-   trigger. It is the smallest role to make tenant-aware (jobs already receive
-   their context from the trigger), but it still needs per-tenant injectors.
+   job. Jobs already receive their context from the trigger, so this is the
+   smallest role to make tenant-aware, but it still needs per-tenant injectors.
 
 ### 4.4 Scale-to-zero mechanics and what the code needs
 
@@ -321,65 +326,130 @@ interval jobs, so a tenant with any alerting never idles. Options:
   them. The `migrate` command exists; `skip_preflight_checks` and
   `run_migrations=false` are the interim switches.
 - **Node identity.** `FilePersistedNodeIdProvider` generates a new id when no
-  file exists, so an ephemeral pod is a new node every time. Consequences in
-  the code: `nodes` churn (`dropOutdated` handles it), `input_runtime_states`
-  rows for dead nodes (cleaned by a leader-only periodical), and job triggers
-  locked by a killed pod stay locked for `job_scheduler_lock_expiration_duration`
-  (5 min) because `forceReleaseOwnedTriggers` only fires for the same node id.
-  Use the pod name as node id, release triggers on SIGTERM, and lower the lock
-  expiry.
-- **Graceful scale-down of `processing`.** `JobSchedulerService#triggerShutdown`
-  stops claiming and waits for running jobs; `BufferSynchronizerService` drains
-  process/output buffers only if the indexer is healthy. With a broker,
-  un-acked messages are simply redelivered, so the pod needs: stop pulling,
-  flush the output batch, ack, exit, within `terminationGracePeriodSeconds`.
-  That is simpler than today's journal drain, provided acks are per message
-  (§5).
+  file exists, so an ephemeral pod is a new node every time. With the control
+  plane on NATS (§5) most of the consequences disappear: presence is a KV entry
+  with a TTL rather than a row in `nodes`, and a job lease is an unacked
+  message rather than a lock bound to a node id, so a killed pod's work is
+  redelivered after `AckWait` instead of waiting out a 5-minute lock expiry.
+  Use the pod name as node id for log correlation; nothing else should depend
+  on it.
+- **Graceful scale-down of `processing`.** `BufferSynchronizerService` drains
+  process/output buffers only if the indexer is healthy. With a transport
+  that redelivers un-acked messages, the pod needs: stop pulling, flush the
+  output batch, ack, exit, within `terminationGracePeriodSeconds`. With the
+  disk journal the pod must not be scaled down while the journal is
+  non-empty, which is why disk mode keeps `processing` at one replica.
 - **Readiness per role.** `Lifecycle` is one state for the whole JVM and one
   failing service sets `FAILED` for everything. Each role needs its own
-  readiness (gateway: sockets bound and broker reachable; processing: consumer
-  joined; api: Jersey up and Mongo reachable; worker: scheduler loop running).
-- **No local state on scaled roles.** Journal (`message_journal_dir`),
-  `content_packs_dir`, GeoIP files (an S3 puller exists under `is_cloud`),
-  input TLS files, support bundles on the leader's disk, `node_id_file`. In
-  broker mode none of these should require a volume.
+  readiness (gateway: sockets bound and transport reachable; processing:
+  consumer joined; api: Jersey up and Mongo reachable; worker: NATS consumer
+  bound).
+- **No local state on scaled roles.** `content_packs_dir`, GeoIP files (an S3
+  puller exists under `is_cloud`), input TLS files, support bundles on the
+  leader's disk, `node_id_file`. In broker mode the journal directory goes
+  too; in disk mode it is the one volume the all-roles pod keeps.
 - **Metrics via Prometheus, not fan-out.** `PrometheusExporter` exists per
   node; `ClusterMetricsResource` and friends fanning out over `nodes` do not fit
-  pods that come and go. The UI's cluster pages need a metrics source that is
-  not the REST fan-out.
-- **Cluster events under churn.** `ClusterEventService` resumes from "now" on
-  start; a pod scaled from zero rebuilds its caches from Mongo anyway, so this is
-  fine, but the capped collection must be sized for the cell, not the tenant.
+  pods that come and go. Where the UI needs a per-node view, the fan-out
+  becomes a NATS request over the tenant's subjects (§5.1).
 
-## 5. Broker choice: Kafka vs NATS JetStream
+## 5. Control plane on NATS
 
-Both fit behind the existing `MessageQueueReader`/`Writer`/`Acknowledger` SPI.
-The differences that matter for this deployment model:
+Decision: on Kubernetes, NATS is a required component of a cell, managed by the
+Graylog operator, and it carries the **control plane** first. The data plane
+(messages between ingest and processing) is a separate choice (§5.3) and may
+stay on the local disk journal or go to Kafka. Control-plane traffic is small
+(heartbeats, configuration change events, job dispatch at trigger rates), so
+this does not put ingest volume on NATS.
+
+### 5.1 What moves off "Mongo as a message bus"
+
+Every mechanism below uses MongoDB today as a bus, a lock or a registry rather
+than as a database. Each is what fights Kubernetes hardest, and each has a
+direct NATS primitive. The entity data stays in Mongo.
+
+| Today | Code | On NATS | Notes |
+|---|---|---|---|
+| Cluster events: capped `cluster_events` + tailable cursor | `events/ClusterEventService.java` | Core pub/sub on `events.<class>` in the tenant's account | Same fire-and-forget semantics as today (a node that missed events rebuilds from Mongo); no JetStream needed |
+| Locks and leader election: `cluster_locks` with a TTL index | `cluster/lock/MongoLockService.java`, `cluster/leader/AutomaticLeaderElectionService.java` | KV bucket `locks`, create-if-absent with a per-key TTL, refreshed by the holder | Expiry becomes deterministic instead of "whenever the Mongo TTL monitor runs"; `LockService` is already an interface |
+| Node registry and heartbeat: `nodes` + `NodePingThread` + `dropOutdated` | `cluster/nodes/AbstractNodeService.java`, `periodical/NodePingThread.java` | KV bucket `nodes`, key per node with TTL, value = role set, lifecycle, LB status, version | `NodeService#allActive(role)` is a KV scan; no `transport_address` needed |
+| Node-to-node REST fan-out over `transport_address` | `shared/rest/resources/ProxiedResource.java`, `rest/RemoteInterfaceProvider.java`, the `Cluster*Resource`s | Request/reply scatter-gather on `node.<role>.<nodeId>.<op>` with the NATS services framework, timeout per request | Removes the need for every pod to be HTTP-reachable from the API pod; auth context travels as a header |
+| Per-node processing status: `processing_status` document per node | `system/processing/MongoDBProcessingStatusRecorderService.java` | KV bucket `processing_status`, key per node with TTL | `DBProcessingStatusService#calculateProcessingState` reads the bucket; stale nodes expire instead of being filtered by `updated_at` |
+| Job execution: polling, `findOneAndUpdate` claim, heartbeat, stale-lock steal, `cluster_locks` for concurrency | `org/graylog/scheduler/JobSchedulerService.java`, `JobExecutionEngine.java`, `DBJobTriggerService.java` | JetStream work-queue stream per tenant, pull consumers (§5.2) | The schedule definitions and trigger records stay in Mongo |
+| Support bundles, content packs on the leader's disk | `SupportBundleService`, `ContentPackLoaderPeriodical` | Object store bucket per tenant | Optional |
+
+Tenancy maps onto NATS accounts: one account per tenant with its own streams,
+KV buckets and JetStream limits, credentials injected into the tenant's pods by
+the operator. A cell is one NATS cluster.
+
+### 5.2 Jobs on work queues
+
+The split that keeps the UI and event-definition CRUD working:
+
+- **Mongo remains the source of truth for schedules and job records.**
+  `scheduler_job_definitions` and `scheduler_triggers` keep their shape:
+  interval/cron/once schedules, `next_time`, status, per-trigger data (the
+  event processor's catch-up window), constraints. Event-definition CRUD keeps
+  rewriting triggers as it does now, and the UI keeps reading "next
+  execution", "last run", "status" from them.
+- **NATS carries execution intents.** A work-queue stream `jobs` per tenant
+  with subjects `jobs.<pool>.<jobType>`; a pull consumer per pool (or per job
+  type where a concurrency limit exists, using `MaxAckPending` as the limit).
+  Message payload is the trigger id and job definition id, nothing else.
+  `AckWait` is the lease; a worker sends in-progress acks while a job runs
+  (replaces the 15-second heartbeat); redelivery after `AckWait` replaces the
+  stale-lock steal; `MaxDeliver` caps retries.
+- **A dispatcher turns due triggers into intents.** It reads
+  `next_time <= now` from Mongo and publishes with
+  `Nats-Msg-Id = <triggerId>:<nextTime>` so the dedup window guarantees one
+  intent per period even if two dispatchers overlap. It is the one singleton
+  left, elected through the `locks` bucket, and it is trivial enough to run
+  inside every `worker` pod. If the message-scheduling feature in recent NATS
+  server versions (2.12, as far as I recall; verify) proves solid, the
+  dispatcher can be replaced by scheduled messages published at trigger save
+  time; keep that as an optimisation, not a dependency.
+- **Workers keep the `Job` API.** `Job`, `JobExecutionContext`,
+  `JobTriggerUpdate` and the `addSchedulerJob`/`addSystemSchedulerJob`
+  extension points do not change; event processors, notifications and system
+  jobs are untouched. On completion the worker writes the `JobTriggerUpdate`
+  to the trigger document as today, then acks. Cancel stays a flag on the
+  trigger, re-read by `isCancelled()`.
+- **Constraints become subjects.** `org.graylog.cluster.is-leader` and the
+  `SchedulerCapabilities` mechanism map to subject filters; a worker pulls only
+  the subjects for capabilities it has. Leader-only periodicals become
+  interval job definitions dispatched on `jobs.system.singleton.*`.
+- **Consistency rule.** Mongo and NATS are not updated transactionally, so the
+  design must hold that every intent is idempotent and re-derivable from Mongo:
+  a duplicate or lost intent is corrected by the next dispatcher pass.
+
+### 5.3 Data-plane transport, deferred
+
+The data plane is the only high-volume path and is decided separately. Three
+configurations, all behind the existing `MessageQueueReader`/`Writer`/
+`Acknowledger` SPI and `message_journal_mode`:
+
+| Mode | Where it fits | Consequence |
+|---|---|---|
+| `disk` (today's `LocalKafkaJournal`) | Tiny tenants on one all-roles pod; on-prem | Ingest and processing stay in one pod; `processing` cannot scale out or to zero; one PVC per tenant |
+| Kafka-compatible topic per tenant | Large tenants, or a platform that already runs Kafka | `processing` scales on lag to zero; offset commit needs a per-partition acked-range tracker because output completion is out of order (§2.2) |
+| NATS JetStream stream per tenant | Uniform stack; moderate per-tenant rates | Per-message ack matches the pipeline directly; puts ingest volume on the same NATS cluster as the control plane, which needs separate sizing or a second cluster |
+
+Recommendation: ship `disk` for the all-roles profile first, design the SPI to
+the per-message-ack contract (bounded pull, ack per message, redelivery on
+timeout) because Kafka can implement it with an acked-range tracker and the
+reverse is not true, and choose Kafka vs JetStream for scaled tenants after a
+spike on a synthetic fleet. The comparison that informs that spike:
 
 | Concern | Kafka (incl. Redpanda/WarpStream) | NATS JetStream |
 |---|---|---|
 | Unit of parallelism | Partition; one active consumer per partition per group; partition count fixed upward only | Pull consumer; any number of workers pull from one consumer (`MaxAckPending` bounds in-flight); no partitions |
-| Ack model | Offset commit per partition, monotone. With Graylog's parallel output buffer, completion is out of order, so a per-partition "contiguous acked" tracker is needed before committing, or the batch keeps today's high-water-mark semantics | Explicit per-message ack with redelivery after `AckWait`. Matches out-of-order completion directly and removes the §2.2 at-most-once edge |
-| Tenancy | Topic + ACL + quota per tenant in one cluster; thousands of topics are routine on KRaft | Account per tenant with JetStream limits; stream per tenant. Each replicated stream is a Raft group, so very large stream counts need a test |
+| Ack model | Offset commit per partition, monotone; acked-range tracker needed for out-of-order completion | Explicit per-message ack with redelivery after `AckWait` |
+| Tenancy | Topic + ACL + quota per tenant; thousands of topics are routine on KRaft | Account per tenant; each replicated stream is a Raft group, so very large stream counts need a test |
 | Buffer semantics (replaces `message_journal_max_size/age`) | Retention by size/time per topic; object-storage tiering in recent Kafka and in Redpanda/WarpStream | Limits retention by bytes/age/messages per stream; no built-in object-storage tier as far as I know |
-| Dedup / idempotent ingest | Idempotent producer per session; no cross-session dedup | `Nats-Msg-Id` header dedup within a window, useful if `gl2_message_id` moves to ingest |
+| Dedup / idempotent ingest | Idempotent producer per session; no cross-session dedup | `Nats-Msg-Id` dedup within a window, useful if `gl2_message_id` moves to ingest |
 | Max message size | ~1 MB default, configurable | 1 MB default, configurable upward with a hard ceiling |
 | Scale-to-zero scaler | KEDA Kafka scaler on consumer lag | KEDA NATS JetStream scaler on pending messages |
-| Ordering | Per partition | Per subject as published; not across parallel pullers |
-| Kubernetes operations | Strimzi; KRaft removes ZooKeeper; heavier footprint; managed offerings everywhere | Helm chart / NACK operator; small footprint; managed offering exists |
-| Throughput ceiling | Very high, scales with partitions; the safe choice for a few very large tenants | Adequate for moderate per-tenant rates; single-stream throughput is lower than a multi-partition topic |
-
-Recommendation, as an opinion to be tested rather than a fact: for the "many
-tiny tenants, scale to zero" objective, **NATS JetStream** fits better. Its
-per-message ack matches the pipeline's out-of-order completion, accounts give
-per-tenant isolation without an ACL layer, and idle streams are cheap. Kafka
-wins when a few tenants dominate throughput or when the platform already runs
-Kafka. The SPI should be designed to the JetStream-shaped contract (pull a
-bounded batch, ack per message, redelivery on timeout) because it is
-implementable on Kafka with an acked-range tracker, whereas the reverse is not
-true. Prototype both behind the SPI on a synthetic tenant fleet before
-committing; the existing `MessageQueueModule` switch on `message_journal_mode`
-is the only integration point either needs.
+| Throughput ceiling | Very high, scales with partitions | Adequate for moderate per-tenant rates; single-stream throughput is lower than a multi-partition topic |
 
 ## 6. Proposal: target component model
 
@@ -390,32 +460,37 @@ tenant can be one pod.
 
 | Role | Runs | External deps | Scaling model | Scale to zero? |
 |---|---|---|---|---|
-| Ingest gateway | Listening inputs for all tenants of a cell, queue writer | Sockets, broker, control plane | Horizontal on connections/CPU; shared | No, by design (shared) |
-| `processing` | Queue reader, process buffer, message processors, output buffer, outputs incl. indexer | Broker, Mongo, OpenSearch, lookup sources | Horizontal on consumer lag | Yes |
-| `api` | REST, web UI, sync search, export streaming | Mongo, OpenSearch | Horizontal on request load, stateless | Yes, cold-start bound |
-| `worker` | User + system job schedulers (event processors, notifications, index maintenance), everything `leaderOnly()` today as jobs, pull-based inputs as singleton jobs | Mongo, OpenSearch, SMTP/HTTP, external APIs | Horizontal on due triggers; singleton jobs via lease | To one for tenants with alerting; zero otherwise |
+| Ingest gateway | Listening inputs for all tenants of a cell, transport writer | Sockets, data-plane transport, control plane | Horizontal on connections/CPU; shared | No, by design (shared) |
+| `processing` | Transport reader, process buffer, message processors, output buffer, outputs incl. indexer | Transport, Mongo, NATS (control), OpenSearch, lookup sources | Horizontal on lag | Yes with a broker; one replica in `disk` mode |
+| `api` | REST, web UI, sync search, export streaming | Mongo, NATS (control), OpenSearch | Horizontal on request load, stateless | Yes, cold-start bound |
+| `worker` | Job consumers (event processors, notifications, index maintenance, former leader-only periodicals), the dispatcher, pull-based inputs as singleton jobs | Mongo, NATS, OpenSearch, SMTP/HTTP, external APIs | Horizontal on pending work | Yes, subject to the idle-tenant policy (§4.3) |
 | `migrate` (Job) | Schema migrations, preflight, CA/cert bootstrap | Mongo, OpenSearch | Kubernetes Job on create/upgrade | n/a |
+
+Cell-level shared components: the operator, NATS (control plane, one account
+per tenant), the ingest gateway, MongoDB (database per tenant), the data-plane
+broker where used, and OpenSearch/Data Node (per tenant or pooled; out of
+scope here).
 
 Design decisions embedded here, each open to a different call:
 
 - **Processing and indexing stay together in the first cut.** The ack path and
   `post_indexing` watermark are the tightest coupling (§2.2). A later split
   needs a second queue and is not required for the scaling goals above.
-- **The leader disappears as a concept; singleton work becomes a job** claimed
-  through the lease that `DBJobTriggerService` already implements.
+- **The leader disappears as a concept.** Singleton work is a job on a
+  work queue; the only election left is for the dispatcher, through a KV key.
 - **Search async state moves to Mongo.** Without this the `api` role is sticky.
 - **One binary, role list in config.** See §7.1 for the alternative.
+- **Mongo holds entities and schedules; NATS holds ephemeral coordination.**
+  Nothing in NATS is a source of truth.
 
 ## 7. What it takes: architectural changes in dependency order
 
 ### 7.1 Introduce node roles (prerequisite for everything)
 
 Required:
-- A `roles` set on `ServerNodeDto`/`nodes`, written by `NodePingThread`,
-  exposed by `NodeService` (`allActive(role)`), and a `NodeRoles` service
-  bound per process.
-- `ProxiedResource` becomes role-aware: `requestOnAllNodes(role, …)`; each
-  `Cluster*Resource` declares the role its target state lives on.
+- A role set per process, exposed through `NodeService#allActive(role)`
+  (backed by the `nodes` KV bucket once §7.2 lands, by the `nodes` collection
+  until then).
 - Module composition by role: split `Server#getNodeCommandBindings` into
   role-tagged groups; extend `GraylogNodeConfiguration` (or a sibling) with the
   role set; plugin extension keys routed by role (a marker interface per role
@@ -431,83 +506,93 @@ Options:
    role, but multiplies bootstrap code that is already share-by-copy (§2.7).
    Can be layered on option 1 later.
 
-### 7.2 Make the `api` role stateless and fast to start
+### 7.2 Control plane on NATS
+
+Required, in the order that keeps each step independently deployable:
+- A NATS connection and account/credential binding in `GraylogNodeModule`,
+  next to the Mongo connection; the operator provisions the account, the
+  `jobs` stream and the `locks`, `nodes`, `processing_status` KV buckets.
+- `LockService` on KV with per-key TTL; `LeaderElectionService` on top of it
+  (until §7.3 removes most callers).
+- `ClusterEventService` publishing and subscribing over core NATS; the capped
+  collection and tailable cursor go away. Event classes and the
+  `RestrictedChainingClassLoader` deserialization stay.
+- Node presence in KV: `NodeService` implementation over the bucket;
+  `NodePingThread` writes there; `dropOutdated` becomes TTL expiry.
+- `ProcessingStatusRecorder` persisting to KV.
+- Node-to-node calls over request/reply: a `NodeRequestService` replacing
+  `RemoteInterfaceProvider`; each `Cluster*Resource` declares the role its
+  target state lives on, and each node registers responders for the
+  operations it can answer. Metrics move to Prometheus regardless.
+- Keep the Mongo implementations behind the same interfaces only if a
+  non-Kubernetes deployment without NATS must remain supported (§9).
+
+### 7.3 Worker role on work queues
+
+Required:
+- The work-queue stream and consumers per §5.2; a `JobDispatcher` reading due
+  triggers from Mongo and publishing intents with dedup ids; workers pulling,
+  executing `Job`s, writing `JobTriggerUpdate`s, acking.
+- Remove `JobSchedulerService`, `JobExecutionEngine`, the polling loop, the
+  heartbeat and `forceReleaseOwnedTriggers`; keep `DBJobTriggerService` for
+  the records, minus the claim query.
+- Convert `leaderOnly()` periodicals into interval job definitions on
+  singleton subjects. Candidates with current cadence: rotation (10 s),
+  retention (5 m), field-type polling (1 s, also event-driven, needs a
+  redesign), index-range cleanup, token cleaners, cert provisioning (2 s),
+  data-node housekeeping (2 s), version check, telemetry, sidecar/collector
+  purges.
+- `@RestrictToLeader` endpoints: deflector cycle becomes a job submission;
+  support bundles go to the object store.
+- Migrations: `migrate` command as the only path; `server` verifies the schema
+  version instead of running migrations.
+- The idle-tenant policy in the dispatcher (§4.3).
+- `InputEventListener#leaderChanged` for `onlyOnePerCluster()` inputs goes
+  away with input placement (§7.5).
+
+### 7.4 Make the `api` role stateless and fast to start
 
 Required:
 - Bind `SearchJobService` to a Mongo-backed implementation (extend
-  `SearchJobStateService`); remove the need for `SearchJobsStatusResource`.
+  `SearchJobStateService`); `SearchJobsStatusResource` becomes unnecessary.
 - Retire `LegacySystemJobManager` (already `@Deprecated(since="7.1")`); move
-  `FixDeflectorBy*Job` and `IndexSetCleanupJob` to the system scheduler.
-- Lookup-table purge and logger-level changes become cluster events; metrics
-  move to Prometheus.
+  `FixDeflectorBy*Job` and `IndexSetCleanupJob` to the work queue.
+- Lookup-table purge and logger-level changes become cluster events.
 - `SimulatorResource` and `ExtractorsResource#test` need pipeline state and
-  lookup tables: either `api` loads them too (Mongo only, cheap) or proxies to
-  a `processing` pod.
+  lookup tables: either `api` loads them too (Mongo only, cheap) or forwards
+  the request to a `processing` pod over NATS.
 - Preflight and migrations out of the start path; measure and cut cold start.
 
-No broker involvement; independently shippable.
+### 7.5 Data-plane transport and input placement
 
-### 7.3 Dissolve the leader into the `worker` role
-
-Required:
-- `JobSchedulerConfig#canExecute` → "this node has role `worker`";
-  `numberOfWorkerThreads` configurable; release owned triggers on SIGTERM.
-- Convert `leaderOnly()` periodicals into scheduler jobs with an interval
-  schedule and a singleton constraint via `constraints`/`SchedulerCapabilities`
-  or `RefreshingLockService`. Candidates with current cadence: rotation (10 s),
-  retention (5 m), field-type polling (1 s, also event-driven), index-range
-  cleanup, token cleaners, cert provisioning (2 s), data-node housekeeping
-  (2 s), version check, telemetry, sidecar/collector purges.
-- `@RestrictToLeader` endpoints: deflector cycle becomes a system-job
-  submission; support bundles go to shared storage.
-- Migrations: `migrate` command as the only path; `server` verifies the schema
-  version instead of running migrations.
-- Replace the Mongo TTL-index lock expiry with an explicit heartbeat compare
-  (the scheduler's `lock.last_lock_time` pattern) and lower
-  `job_scheduler_lock_expiration_duration`.
-- Idle-tenant behaviour for interval jobs (§4.3 option 2).
-
-### 7.4 Broker-backed queue (ingest ⟂ processing)
-
-Required regardless of broker:
-- `MessageQueueWriter`/`Reader`/`Acknowledger` for the broker, bound through
-  `bindMessageQueueImplementation`, selected by `message_journal_mode`.
+Required regardless of transport:
 - Reader decoupled from `ProcessBuffer`: bounded-prefetch pull loop instead of
   "read exactly remaining capacity + semaphore"; `Acknowledgeable` ids become
-  broker-native; acks per message after `BatchedMessageFilterOutput#flush`
-  (Kafka: acked-range tracker per partition before commit).
-- Backpressure: `ThrottleState` from consumer lag and broker quotas; LB status
-  for the gateway from broker write health, for `processing` from lag.
-- `processing_status` split into gateway/ingest facts and processing facts;
-  `DBProcessingStatusService#calculateProcessingState` rewritten so the
-  `AggregationEventProcessor` guard keeps working with processing at zero
-  (a tenant with lag > 0 is "not up to date", which is the correct answer).
+  transport-native; acks per message after `BatchedMessageFilterOutput#flush`.
+- Backpressure from lag and transport quotas instead of local journal
+  offsets; per-tenant `THROTTLED` at the gateway.
+- `processing_status` split into gateway/ingest facts and processing facts
+  (in KV after §7.2); `calculateProcessingState` rewritten so the
+  `AggregationEventProcessor` guard treats "lag > 0, processing at zero" as
+  "not up to date", which is the correct answer.
 - Message identity: decide whether `gl2_message_id` is assigned at ingest so
-  redelivery is idempotent (JetStream dedup header can then be used).
-- Keep `disk` mode for single-node and on-prem: `ingest,processing` on one
-  node stays supported.
-
-### 7.5 Shared ingest gateway and input placement
-
-Required:
+  redelivery is idempotent.
 - Gateway role built from the forwarder-compatible subset of inputs, no Mongo,
-  configuration pushed by the control plane (§4.2); tenant id and source-node
-  chain stamped on every `RawMessage`; per-tenant topic/stream routing.
-- Replace `global`/`node_id` with a placement spec on the input: `gateway`
-  (listening, shared), `worker` singleton (pull-based), or legacy node
-  pinning for on-prem. A reconciler replaces `PersistedInputsImpl#iterator`
-  and the three placement predicates in `InputEventListener`.
+  configuration pushed by the control plane over NATS (§4.2); tenant id and
+  source-node chain stamped on every `RawMessage`.
+- Placement spec on the input: `gateway` (listening, shared), `worker`
+  singleton (pull-based), or legacy node pinning for `disk` mode. A reconciler
+  replaces `PersistedInputsImpl#iterator` and the three placement predicates
+  in `InputEventListener`.
 - Certificates for TLS inputs from the control plane/secret store rather than
   node-local paths.
-- Input runtime state for gateway-hosted inputs reported per tenant into
-  `input_runtime_states` (already keyed by input and node).
 
 ### 7.6 Bootstrap and composition hygiene
 
 Not strictly required, but every step above is cheaper after it: a genuinely
-shared node-runtime module set (used by `server`, `datanode`, gateway), per-concern
-role-tagged modules instead of the 45-module block, explicit ServiceManager
-start order, and per-role readiness.
+shared node-runtime module set (used by `server`, `datanode`, gateway),
+per-concern role-tagged modules instead of the 45-module block, explicit
+ServiceManager start order, and per-role readiness.
 
 ## 8. Suggested sequencing
 
@@ -515,33 +600,38 @@ Each phase is shippable on its own and keeps `server` = all roles working.
 
 | Phase | Outcome | Depends on | Risk |
 |---|---|---|---|
-| 0 | Roles in config, `nodes`, `ProxiedResource`; per-role readiness; migrations as a Job; startup measured | – | Low |
-| 1 | `api` runs standalone, stateless, scaled by requests; search jobs in Mongo; legacy jobs gone | 0 | Low |
-| 2 | `worker` role; leader-only periodicals are jobs; scheduler on all workers; triggers released on SIGTERM; idle-tenant cadence | 0 | Medium |
-| 3 | Broker SPI implementation (JetStream first, Kafka behind the same contract); `processing` scales on lag to zero; `processing_status` split | 0, 2 | High (data path) |
-| 4 | Shared ingest gateway; placement spec; certificates from the control plane | 3 | Medium |
-| 5 | Operator: tenant CRD → per-role deployments, KEDA objects, gateway config; tiny-tenant all-roles profile | 0–4, deployment side | Medium |
-| 6 | Optional: processing ⟂ indexing split, shared multi-tenant worker, per-role commands | 3 | Medium |
+| 0 | Roles in config and registry; per-role readiness; migrations as a Job; startup measured | – | Low |
+| 1 | Control plane on NATS: locks, leader, cluster events, presence, processing status, node request/reply; Mongo bus code retired or kept behind interfaces | 0, operator provisions NATS | Medium (touches every node, but each piece has an interface today) |
+| 2 | `worker` on work queues; dispatcher; leader-only periodicals as jobs; KEDA on pending messages | 1 | Medium (rotation/retention correctness) |
+| 3 | `api` standalone, stateless, request-scaled; search jobs in Mongo; legacy jobs gone | 0, 1 | Low |
+| 4 | Data-plane transport behind the SPI (Kafka or JetStream, chosen by spike); `processing` scales on lag to zero; `processing_status` split | 1, 2 | High (data path) |
+| 5 | Shared ingest gateway; placement spec; certificates from the control plane | 4 | Medium |
+| 6 | Operator: tenant CRD → NATS account, per-role deployments, KEDA objects, gateway config; tiny-tenant all-roles profile with `disk` mode | 0–3 for a first cut, 4–5 for scaled tenants | Medium |
+| 7 | Optional: processing ⟂ indexing split, shared multi-tenant worker, per-role commands | 4 | Medium |
 
-Phases 1 and 2 remove the leader and make search scale without touching the
-data path; phase 3 is where scale-to-zero for the data path arrives; phase 4
-is what makes tiny tenants cheap.
+Phases 1 to 3 remove the leader, make background work and search scale to zero
+and never touch the data path; a tiny tenant is fully served after phase 3
+with `disk` mode. Phase 4 is where scaled tenants get elastic ingest.
 
 ## 9. Open questions
 
-1. **Tenancy topology.** Confirm stack-per-tenant for `processing`/`api`/`worker`
-   with a shared gateway and broker per cell, as opposed to multi-tenant
-   components. The latter is a rewrite of the singleton assumptions.
-2. **Broker.** JetStream-shaped SPI, prototype both; pick after a spike. Does
-   the platform already run Kafka, and how many tenants per cell are expected?
-3. **Tiny-tenant baseline.** Is "one all-roles pod at min 1" acceptable, or
-   must true zero (with request/lag activation and a cold start measured in
-   tens of seconds) be the target from the start?
-4. **What Graylog Cloud does today** for ingest hostnames, the Forwarder, and
+1. **Non-Kubernetes deployments.** Does on-prem without an operator remain a
+   supported target for this architecture? If yes, either bundle `nats-server`
+   the way the Data Node bundles OpenSearch (single binary, low footprint), or
+   keep the Mongo implementations behind `LockService`, `NodeService`,
+   `ClusterEventBus` and the scheduler interfaces. The first keeps one code
+   path; the second doubles the surface permanently.
+2. **Data-plane transport for scaled tenants.** Kafka vs JetStream, decided by
+   a spike (§5.3). Does the platform already run Kafka, and what is the
+   expected per-tenant rate distribution across a cell?
+3. **NATS message scheduling.** Verify the feature and its update/cancel
+   semantics before letting it replace the dispatcher.
+4. **Tiny-tenant baseline.** Is "one all-roles pod at min 1 with `disk` mode"
+   acceptable for the smallest tenants, or must true zero (request/lag
+   activation, cold start in tens of seconds) be the target from the start?
+5. **What Graylog Cloud does today** for ingest hostnames, the Forwarder, and
    any existing remote journal mode. These are outside the OSS tree and may
-   already cover part of phases 3 and 4.
-5. **Node identity for pods**: pod name as node id, and how much of the
-   `nodes`/`input_runtime_states`/trigger-lock cleanup to keep.
+   already cover part of phases 4 and 5.
 6. **Search jobs.** Is there an enterprise `SearchJobService` override, and is
    Mongo-backed job state acceptable for latency?
 7. **Message identity.** Assign `gl2_message_id` at ingest for idempotent
